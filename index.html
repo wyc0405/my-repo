@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>200슨피단 오늘의 시그널</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --card-border: #1c1c1e;
+      --p1: #FFFFFF;
+      --p2: #AAAAAA;
+      --dot: #666666;
+      --divider: #2a2a2c;
+      --tqqq: #e8714f;
+      --spym: #b07cc0;
+      --sgov: #5bb8e8;
+      --upperBand: #e070c0;
+      --lowerBand: #afd485;
+      --cp: #80dfff;
+      --sell: #f0a0a0;
+      --alert: #ff4d4d;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    [hidden] { display: none !important; }
+    html { background: var(--bg); }
+
+    body {
+      background: var(--bg);
+      color: var(--p1);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Roboto", sans-serif;
+      padding: calc(12px + env(safe-area-inset-top)) 12px calc(20px + env(safe-area-inset-bottom));
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.4;
+    }
+
+    .wrap { width: 100%; max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+    .card { background: #000; border: 1px solid var(--card-border); border-radius: 18px; padding: 14px 16px; }
+
+    .card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .title { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+    .version { font-size: 10px; color: var(--p2); }
+
+    .updated { font-size: 11px; color: var(--p2); margin: 2px 0 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--divider); color: var(--cp); }
+
+    .content-row { display: flex; align-items: center; gap: 10px; }
+    .chart-box { flex: 1; min-width: 0; }
+    .info-box { flex: 1.1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    canvas { width: 100%; height: auto; display: block; }
+
+    .headline { font-size: 12px; font-weight: 500; margin-bottom: 4px; }
+    .sig-row { font-size: 16px; font-weight: 700; line-height: 1.3; display: flex; flex-wrap: wrap; align-items: baseline; }
+    .tk-tqqq { color: var(--tqqq); }
+    .tk-spym { color: var(--spym); }
+    .tk-sgov { color: var(--sgov); }
+    .tk-dot  { color: var(--dot); margin: 0 1px; }
+    .tk-act  { color: var(--p1); margin-left: 5px; }
+    .is-alert .tk-tqqq, .is-alert .tk-spym, .is-alert .tk-sgov, .is-alert .tk-act, .is-alert .tk-dot { color: var(--alert); }
+    .sub { font-size: 11px; color: var(--p2); margin-top: 4px; }
+
+    .price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider); }
+    .price-grid .k { font-size: 10px; color: var(--p2); }
+    .price-grid .v { font-size: 13px; font-weight: 600; margin-top: 1px; }
+    .price-grid .d { font-size: 10px; color: var(--p2); }
+
+    /* 보유 입력 */
+    .hold { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px; }
+    .hold label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--p2); }
+    .hold input {
+      width: 100%; background: #141416; border: 1px solid var(--divider); border-radius: 10px;
+      color: var(--p1); font: inherit; font-size: 15px; font-weight: 600; padding: 9px 10px;
+    }
+    .hold input:focus-visible { outline: 2px solid var(--cp); outline-offset: 1px; }
+    .hold-note { font-size: 11px; color: var(--dot); margin-bottom: 4px; }
+
+    .trades { margin-top: 8px; display: flex; flex-direction: column; }
+    .trade { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--divider); }
+    .trade .who { font-size: 15px; font-weight: 700; }
+    .trade .what { text-align: right; font-size: 16px; font-weight: 700; }
+    .trade .what small { display: block; font-size: 11px; font-weight: 400; color: var(--p2); }
+    .buy { color: var(--cp); } .sell { color: var(--sell); }
+    .msg { font-size: 13px; color: var(--p2); padding: 10px 0 2px; border-top: 1px solid var(--divider); }
+
+    .rows { display: flex; flex-direction: column; }
+    .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; border-top: 1px solid var(--divider); font-size: 13px; }
+    .row:first-child { border-top: 0; padding-top: 2px; }
+    .row .k { color: var(--p2); flex-shrink: 0; }
+    .row .v { text-align: right; font-weight: 600; }
+    .row .v small { display: block; font-size: 11px; font-weight: 400; color: var(--p2); }
+
+    .dots { display: inline-flex; gap: 5px; vertical-align: middle; margin-right: 6px; }
+    .dots i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--dot); display: block; }
+    .dots i.on { background: var(--cp); border-color: var(--cp); }
+
+    .ev { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--divider); font-size: 13px; }
+    .ev:first-of-type { border-top: 0; }
+    .ev-date { color: var(--p2); font-size: 12px; width: 60px; flex-shrink: 0; padding-top: 1px; }
+    .ev-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .t-BUY { color: var(--cp); } .t-ENTRY { color: var(--upperBand); } .t-TS, .t-EXIT { color: var(--alert); }
+    .t-TP { color: var(--lowerBand); } .t-REBAL { color: var(--spym); } .t-CYCLE, .t-TAX { color: var(--p2); }
+    .empty { color: var(--p2); font-size: 13px; padding: 6px 0; }
+
+    .note { font-size: 11px; color: var(--dot); line-height: 1.5; margin-top: 8px; }
+    .btn { width: 100%; background: #141416; border: 1px solid var(--divider); color: var(--p2); padding: 12px; border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .btn:active { background: #222; }
+    .btn:focus-visible { outline: 2px solid var(--cp); outline-offset: 2px; }
+
+    .status-screen { display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; height: 60vh; color: var(--p2); font-size: 13px; text-align: center; padding: 0 20px; }
+    .status-screen .btn { width: auto; padding: 10px 22px; }
+  </style>
+</head>
+<body>
+
+  <div id="status" class="status-screen">전략 시그널을 계산하는 중...</div>
+
+  <main id="main" class="wrap" hidden>
+
+    <!-- 오늘의 신호 -->
+    <section class="card" aria-labelledby="t-signal">
+      <div class="card-header">
+        <h1 class="title" id="t-signal">200슨피단 (SPX)</h1>
+        <div class="version" id="ver">-</div>
+      </div>
+      <div class="updated"><span id="updated">-</span><span class="badge" id="prov" hidden>장중 잠정</span></div>
+      <div class="content-row">
+        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 200일선, 상하단 밴드"></canvas></div>
+        <div class="info-box" id="sig"></div>
+      </div>
+      <div class="price-grid" id="prices"></div>
+    </section>
+
+    <!-- 오늘 주문 -->
+    <section class="card" aria-labelledby="t-order">
+      <div class="card-header"><h2 class="title" id="t-order">오늘 주문</h2><div class="version" id="px"></div></div>
+      <div class="hold">
+        <label>TQQQ 보유(주)<input id="in-t" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <label>SPYM 보유(주)<input id="in-s" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <label>SGOV·현금($)<input id="in-c" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+      </div>
+      <div class="hold-note">오늘 주문을 넣기 전 보유 상태를 입력하세요. 이 기기에만 저장됩니다.</div>
+      <div class="trades" id="orders"></div>
+      <p class="note" id="order-note"></p>
+    </section>
+
+    <!-- 사이클 상태 -->
+    <section class="card" aria-labelledby="t-state">
+      <div class="card-header"><h2 class="title" id="t-state">현재 사이클</h2></div>
+      <div class="rows" id="state" style="margin-top:8px"></div>
+    </section>
+
+    <!-- 최근 신호 -->
+    <section class="card" aria-labelledby="t-events">
+      <div class="card-header"><h2 class="title" id="t-events">최근 신호</h2></div>
+      <div id="events" style="margin-top:6px"></div>
+    </section>
+
+    <button class="btn" id="btn-refresh">새로고침</button>
+    <p class="note" style="text-align:center;margin-top:0">투자 참고용 정보입니다. 매매 판단과 결과의 책임은 본인에게 있습니다.</p>
+  </main>
+
+  <script>
+    const API_URL = "/api/signal";   // 같은 도메인의 Pages Function
+    const HOLD_KEY = "godly-hold-v1";
+
+    const C = { p1: "#FFFFFF", p2: "#AAAAAA", tqqq: "#e8714f", spym: "#b07cc0", sgov: "#5bb8e8",
+                upperBand: "#e070c0", lowerBand: "#afd485", cp: "#80dfff", alert: "#ff4d4d" };
+    const TONE_COLOR = { buy: C.cp, sell: C.alert, alert: C.alert, wait: C.p2, hold: C.p1 };
+
+    let DATA = null;
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    const num = (v, d = 2) => Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const pct = (v, d = 1) => (v > 0 ? "+" : "") + Number(v).toFixed(d) + "%";
+    const pct0 = (v, d = 1) => (Number(v) * 100 > 0 ? "+" : "") + (Number(v) * 100).toFixed(d) + "%";
+
+    function kst(sec) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+        timeZone: "Asia/Seoul", year: "2-digit", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false
+      }).formatToParts(new Date(sec * 1000)).map((x) => [x.type, x.value]));
+      return `${p.year}.${p.month}.${p.day}. ${p.hour === "24" ? "00" : p.hour}:${p.minute} 기준`;
+    }
+
+    function hd(canvasId, w, h) {
+      const cv = $(canvasId), dpr = window.devicePixelRatio || 1;
+      cv.width = w * dpr; cv.height = h * dpr; cv.style.aspectRatio = `${w} / ${h}`;
+      const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { ctx, W: w, H: h };
+    }
+
+    const tkClass = (t) => t.includes("TQQQ") ? "tk-tqqq" : t.includes("SPYM") ? "tk-spym" : t.includes("SGOV") ? "tk-sgov" : "";
+    const tickers = (label) => label.split("·").map((p) => `<span class="${tkClass(p)}">${esc(p)}</span>`).join('<span class="tk-dot">·</span>');
+
+    // ---------- 보유 입력 ----------
+    function loadHold() { try { return JSON.parse(localStorage.getItem(HOLD_KEY)) || {}; } catch (e) { return {}; } }
+    function saveHold(h) { try { localStorage.setItem(HOLD_KEY, JSON.stringify(h)); } catch (e) { /* 저장 불가 환경은 무시 */ } }
+    function readHold() {
+      const f = (id) => { const v = parseFloat($(id).value.replace(/,/g, "")); return isFinite(v) && v > 0 ? v : 0; };
+      return { t: f("in-t"), s: f("in-s"), c: f("in-c") };
+    }
+
+    // ---------- 주문 수량 계산 (오늘 신호를 내 보유 수량에 순서대로 적용) ----------
+    function applyActs(d, h0) {
+      const P = d.params, pT = d.price.tqqq, pS = d.price.spym;
+      const h = { ...h0 };
+      for (const a of d.signal.todayActs) {
+        if (a.type === "BUY") {
+          const amt = a.stage < P.stages ? h.c / (P.stages + 1 - a.stage) : h.c;
+          h.c -= amt; h.t += amt * P.splitT / pT; h.s += amt * P.splitS / pS;
+        } else if (a.type === "TS" || a.type === "TP") {
+          const q = h.t * a.frac;
+          h.t -= q; h.s += q * pT / pS;
+        } else if (a.type === "REBAL") {
+          const total = h.t * pT + h.s * pS + h.c;
+          const qty = (h.t * pT - total * P.rbT) / pT;
+          if (qty > 0) { h.t -= qty; h.s += qty * pT / pS; }
+          else {
+            const sty = (h.s * pS - total * P.rbS) / pS;      // 양수: SPYM → TQQQ, 음수: TQQQ → SPYM
+            h.s -= sty; h.t += sty * pS / pT;
+          }
+        } else if (a.type === "EXIT") {
+          h.c += h.t * pT + h.s * pS; h.t = 0; h.s = 0;
+        }
+      }
+      return h;
+    }
+
+    function tradeRow(ticker, deltaShares, price) {
+      const buy = deltaShares > 0;
+      const sh = buy ? Math.floor(deltaShares + 1e-9) : Math.round(-deltaShares);
+      if (sh < 1) return "";
+      return `<div class="trade"><span class="who">${tickers(ticker)}</span><span class="what ${buy ? "buy" : "sell"}">${buy ? "매수" : "매도"} ${num(sh, 0)}주<small>약 $${num(sh * price, 0)}</small></span></div>`;
+    }
+
+    function renderOrders() {
+      if (!DATA) return;
+      const d = DATA, h0 = readHold(), acts = d.signal.todayActs;
+      const pT = d.price.tqqq, pS = d.price.spym;
+      $("px").textContent = `TQQQ $${num(pT)}` + (pS ? ` · SPYM $${num(pS)}` : "");
+      const hasHold = h0.t > 0 || h0.s > 0 || h0.c > 0;
+      let html = "";
+
+      if (!acts.length) {
+        html = `<div class="msg">${d.state.active ? "오늘은 주문할 내용이 없습니다. 보유를 유지하세요." : "오늘은 주문할 내용이 없습니다. SGOV로 대기하세요."}</div>`;
+      } else if (!pS) {
+        html = `<div class="msg">SPYM 시세를 불러오지 못해 주식수를 계산할 수 없습니다. 새로고침 해보세요.</div>`;
+      } else if (!hasHold) {
+        html = `<div class="msg">보유 수량을 입력하면 오늘 사고팔 주식수를 계산합니다.</div>`;
+      } else {
+        const h1 = applyActs(d, h0);
+        const dc = h1.c - h0.c;
+        html = tradeRow("TQQQ", h1.t - h0.t, pT) + tradeRow("SPYM", h1.s - h0.s, pS);
+        if (Math.abs(dc) >= 1) {
+          html += `<div class="trade"><span class="who">${tickers("SGOV")}</span><span class="what ${dc < 0 ? "sell" : "buy"}">${dc < 0 ? "매도" : "매수"} $${num(Math.abs(dc), 0)}<small>SGOV·현금 ${dc < 0 ? "사용" : "확보"}</small></span></div>`;
+        }
+        if (!html) html = `<div class="msg">보유 수량이 적어 오늘 주문할 주식이 1주 미만입니다.</div>`;
+      }
+      $("orders").innerHTML = html;
+      $("order-note").textContent = "수수료·세금과 체결가 차이는 반영하지 않은 추정치입니다. 시세는 " + (d.provisional ? "장중 가격이라 마감 시 달라질 수 있습니다." : "가장 최근 종가 기준입니다.");
+      renderState(d);   // 내일 예상 매수 수량 갱신
+    }
+
+    // ---------- 오늘의 신호 ----------
+    function renderSignal(d) {
+      const s = d.signal, p = d.price;
+      const rows = s.lines.map(([t, a]) => `<div class="sig-row">${tickers(t)}<span class="tk-act">${esc(a)}</span></div>`).join("");
+      const sub = d.state.position === "BELOW" ? `상단 밴드까지 ${pct(p.toUpPct)} 필요`
+                : p.zone === "IN_BAND" ? "밴드 안 · 이전 상승 포지션 유지" : `200일선 대비 ${pct(p.vsSmaPct)}`;
+      $("sig").className = "info-box" + (s.tone === "alert" || s.tone === "sell" ? " is-alert" : "");
+      $("sig").innerHTML = `<div class="headline" style="color:${TONE_COLOR[s.tone] || C.p1}">${esc(s.headline)}</div>${rows}<div class="sub">${esc(sub)}</div>`;
+      $("prices").innerHTML = [
+        ["SPX", num(p.spx), ""],
+        ["200일선", num(p.sma), ""],
+        [`상단 +${(d.params.upBand * 100).toFixed(1)}%`, num(p.upBand), pct(p.toUpPct)],
+        [`하단 -${(d.params.dnBand * 100).toFixed(1)}%`, num(p.dnBand), pct(p.toDnPct)]
+      ].map(([k, v, sm]) => `<div><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="d">${esc(sm)}</div></div>`).join("");
+    }
+
+    function drawBand(ch) {
+      const { ctx, W, H } = hd("bandChart", 500, 300);
+      const all = ch.spx.concat(ch.up, ch.dn).filter((v) => v !== null);
+      const min = Math.min(...all), max = Math.max(...all), range = max - min || 1, n = ch.spx.length;
+      const X = (i) => 12 + (i / (n - 1)) * (W - 24);
+      const Y = (v) => H - 14 - ((v - min) / range) * (H - 28);
+      const line = (arr, col, wid, dash) => {
+        ctx.beginPath(); let go = false;
+        arr.forEach((v, i) => { if (v === null) return; if (!go) { ctx.moveTo(X(i), Y(v)); go = true; } else ctx.lineTo(X(i), Y(v)); });
+        ctx.strokeStyle = col; ctx.lineWidth = wid; ctx.setLineDash(dash || []); ctx.lineJoin = "round"; ctx.stroke(); ctx.setLineDash([]);
+      };
+      line(ch.sma, "rgba(255,255,255,0.35)", 2, [6, 6]);
+      line(ch.up, C.upperBand, 3);
+      line(ch.dn, C.lowerBand, 3);
+      line(ch.spx, C.cp, 5);
+      ctx.fillStyle = C.cp; ctx.beginPath(); ctx.arc(X(n - 1), Y(ch.spx[n - 1]), 7, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // ---------- 사이클 상태 ----------
+    const row = (k, v, small) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${v}${small ? `<small>${small}</small>` : ""}</span></div>`;
+
+    function renderState(d) {
+      const st = d.state, p = d.price, out = [];
+      const zoneTxt = { ABOVE: "밴드 위", IN_BAND: "밴드 안", BELOW: "밴드 아래" }[p.zone];
+
+      if (!st.active) {
+        out.push(row("포지션", "하락장 · 전량 SGOV", `SPX는 현재 ${zoneTxt}`));
+        out.push(row("재진입 조건", `SPX ${num(p.upBand)} 이상`, `현재가 대비 ${pct(p.toUpPct)}`));
+      } else {
+        out.push(row("포지션", "상승장 · 사이클 진행 중", `SPX는 현재 ${zoneTxt}`));
+        const dots = Array.from({ length: st.buy.total }, (_, i) => `<i class="${i < st.buy.filled ? "on" : ""}"></i>`).join("");
+        let small = "매수 완료";
+        if (st.buy.filled < st.buy.total) {
+          const k = st.buy.filled + 1, P = d.params;
+          small = `다음 거래일 ${k}차 · 회당 TQQQ ${(P.splitT * 100).toFixed(0)}% / SPYM ${(P.splitS * 100).toFixed(0)}%`;
+          const h0 = readHold();
+          if (d.price.spym && (h0.t > 0 || h0.s > 0 || h0.c > 0)) {
+            const h1 = applyActs(d, h0);
+            const amt = k < P.stages ? h1.c / (P.stages + 1 - k) : h1.c;
+            const a = Math.floor(amt * P.splitT / d.price.tqqq), b = Math.floor(amt * P.splitS / d.price.spym);
+            if (amt > 0) small += `<br>예상 TQQQ ${num(a, 0)}주 · SPYM ${num(b, 0)}주 (오늘 시세 기준)`;
+          }
+        }
+        out.push(row("분할매수", `<span class="dots">${dots}</span>${st.buy.filled}/${st.buy.total}`, small));
+        if (st.cycleRet !== null) out.push(row("사이클 수익률", pct0(st.cycleRet)));
+        if (st.ts) out.push(row("TS 발동선", `SPX ${num(st.ts.trigger)}`, `고점 ${num(st.ts.peak)} 대비 ${pct(st.ts.fromPeakPct)} · 발동까지 ${pct(st.ts.toTriggerPct)}`));
+        out.push(row("다음 익절", st.tp.nextSmall === null ? "소익절 모두 완료" : `소익절 다음 ${pct0(st.tp.nextSmall, 0)}`, `대익절 다음 ${pct0(st.tp.nextBig, 0)}`));
+        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때 ${(d.params.rbT * 10).toFixed(0)}:${(d.params.rbS * 10).toFixed(0)}로 1회`));
+      }
+      $("state").innerHTML = out.join("");
+    }
+
+    function renderEvents(d) {
+      if (!d.events.length) { $("events").innerHTML = '<div class="empty">아직 발생한 신호가 없습니다.</div>'; return; }
+      $("events").innerHTML = d.events.map((e) =>
+        `<div class="ev"><span class="ev-date">${e.date.slice(2).replace(/-/g, ".")}</span><div class="ev-body">${
+          e.acts.map((a) => `<span class="t-${esc(a.type)}">${esc(a.text)}</span>`).join("")}</div></div>`).join("");
+    }
+
+    // ---------- 로드 ----------
+    async function load() {
+      const status = $("status"), main = $("main");
+      main.hidden = true; status.hidden = false; status.className = "status-screen";
+      status.textContent = "전략 시그널을 계산하는 중...";
+      $("btn-refresh").disabled = true;
+      try {
+        const res = await fetch(API_URL, { cache: "no-store" });
+        const text = await res.text();
+        let d;
+        try { d = JSON.parse(text); }
+        catch (e) {
+          throw new Error(`/api/signal 응답이 올바르지 않습니다 (HTTP ${res.status}${text ? "" : ", 빈 응답"}). ` +
+            "서버 코드(src/worker.js)가 배포됐는지 확인하세요.");
+        }
+        if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
+        DATA = d;
+        $("ver").textContent = d.version;
+        $("updated").textContent = kst(d.asOf);
+        $("prov").hidden = !d.provisional;
+        renderSignal(d);
+        renderEvents(d);
+        renderOrders();                       // 주문 + 사이클 상태
+        status.hidden = true; main.hidden = false;   // 캔버스는 화면에 보인 뒤 그려야 크기가 맞음
+        drawBand(d.chart);
+      } catch (err) {
+        status.hidden = false; main.hidden = true;
+        status.innerHTML = `<div>데이터를 불러오지 못했습니다.<br>${esc(err.message)}</div><button class="btn" id="retry">다시 시도</button>`;
+        $("retry").addEventListener("click", load);
+      } finally {
+        $("btn-refresh").disabled = false;
+      }
+    }
+
+    const saved = loadHold();
+    ["t", "s", "c"].forEach((k) => {
+      if (saved[k]) $("in-" + k).value = saved[k];
+      $("in-" + k).addEventListener("input", () => { saveHold(readHold()); renderOrders(); });
+    });
+    $("btn-refresh").addEventListener("click", load);
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  // ★ name 은 Cloudflare 대시보드에서 만든 Worker(프로젝트) 이름과 똑같이 맞추세요.
+  "name": "godly-signal",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  }
+}
