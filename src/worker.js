@@ -13,12 +13,12 @@
 const VERSION = "v1.0";
 
 const PARAMS = {
-  UP_BAND: 0.025,            // 상단 밴드 (200일선 +2.5%)
-  DN_BAND: 0.03,             // 하단 밴드 (200일선 -3%)
-  TS_THRESH: 0.10,           // SPX가 사이클 고점 대비 -10% → TS 발동 (발동 후 고점 리셋 = 연쇄)
-  TS_THRESH_SELL: 0.5,       // TS 발동 시 TQQQ 보유량의 50% → SPYM
-  RB_RATE_T: 9 / 10,         // 리밸런싱 TQQQ 비중
-  RB_RATE_S: 1 / 10,         // 리밸런싱 SPYM 비중
+  UP_BAND: 0.04,            // 상단 밴드 (200일선 +2.5%)
+  DN_BAND: 0.045,             // 하단 밴드 (200일선 -3%)
+  TS_THRESH: 0.06,           // SPX가 사이클 고점 대비 -6% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  TS_THRESH_SELL: 0.3,       // TS 발동 시 TQQQ 보유량의 30% → SPYM
+  RB_RATE_T: 6 / 10,         // 리밸런싱 TQQQ 비중
+  RB_RATE_S: 4 / 10,         // 리밸런싱 SPYM 비중
   FEE: 0.0007,               // 매매 수수료 0.07%
   TAX_RATE: 0.22,            // 양도소득세 22%
   DEDUCTION: 2500.0,         // 연간 기본공제 ($)
