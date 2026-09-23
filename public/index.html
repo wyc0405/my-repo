@@ -366,7 +366,7 @@
         ctx.strokeStyle = C.peak; ctx.lineWidth = 2.5; ctx.setLineDash([3, 7]); ctx.lineCap = "round"; ctx.stroke(); ctx.setLineDash([]); ctx.lineCap = "butt";
         ctx.font = "600 22px -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
         ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-        const label = `TS 기준 고점 ${num(peak)}`, ty = y > 34 ? y - 8 : y + 26, tw = ctx.measureText(label).width;
+        const label = `TS HIGH ${num(peak)}`, ty = y > 34 ? y - 8 : y + 26, tw = ctx.measureText(label).width;
         ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(10, ty - 21, tw + 8, 27);   // 선과 겹쳐도 읽히도록 배경
         ctx.fillStyle = C.peak; ctx.fillText(label, 14, ty);
       }
