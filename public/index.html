@@ -68,14 +68,19 @@
     .price-grid .d { font-size: 10px; color: var(--p2); }
 
     /* 보유 입력 */
-    .hold { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 4px; }
-    .hold label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--p2); }
+    .hold { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+    .hold-row { display: flex; align-items: flex-end; gap: 8px; }
+    .hold-tk { width: 46px; flex-shrink: 0; font-size: 12px; font-weight: 700; padding-bottom: 9px; }
+    .hold label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--p2); }
     .hold input {
       width: 100%; background: #141416; border: 1px solid var(--divider); border-radius: 10px;
       color: var(--p1); font: inherit; font-size: 15px; font-weight: 600; padding: 9px 10px;
     }
     .hold input:focus-visible { outline: 2px solid var(--cp); outline-offset: 1px; }
     .hold-note { font-size: 11px; color: var(--dot); margin-bottom: 4px; }
+    .pl { display: flex; gap: 14px; font-size: 12px; margin: 2px 0 10px; flex-wrap: wrap; }
+    .pl b { font-weight: 700; }
+    .up { color: var(--cp); } .down { color: var(--sell); }
 
     .trades { margin-top: 8px; display: flex; flex-direction: column; }
     .trade { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--divider); }
@@ -122,12 +127,12 @@
     <!-- 오늘의 신호 -->
     <section class="card" aria-labelledby="t-signal">
       <div class="card-header">
-        <h1 class="title" id="t-signal">SPX 현황</h1>
+        <h1 class="title" id="t-signal">SPX</h1>
         <div class="version" id="ver">-</div>
       </div>
       <div class="updated"><span id="updated">-</span><span class="badge" id="prov" hidden>장중 잠정</span></div>
       <div class="content-row">
-        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 200일선, 상하단 밴드"></canvas></div>
+        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 200일선, 상하단 밴드, 사이클 고점"></canvas></div>
         <div class="info-box" id="sig"></div>
       </div>
       <div class="price-grid" id="prices"></div>
@@ -137,11 +142,24 @@
     <section class="card" aria-labelledby="t-order">
       <div class="card-header"><h2 class="title" id="t-order">오늘 주문</h2><div class="version" id="px"></div></div>
       <div class="hold">
-        <label>TQQQ 보유(주)<input id="in-t" inputmode="decimal" autocomplete="off" placeholder="0"></label>
-        <label>SPYM 보유(주)<input id="in-s" inputmode="decimal" autocomplete="off" placeholder="0"></label>
-        <label>SGOV·현금($)<input id="in-c" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        <div class="hold-row">
+          <span class="hold-tk tk-tqqq">TQQQ</span>
+          <label>수량(주)<input id="in-t" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+          <label>평단가($)<input id="in-pt" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        </div>
+        <div class="hold-row">
+          <span class="hold-tk tk-spym">SPYM</span>
+          <label>수량(주)<input id="in-s" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+          <label>평단가($)<input id="in-ps" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+        </div>
+        <div class="hold-row">
+          <span class="hold-tk tk-sgov">SGOV</span>
+          <label>현금($)<input id="in-c" inputmode="decimal" autocomplete="off" placeholder="0"></label>
+          <label style="visibility:hidden">-<input tabindex="-1" aria-hidden="true"></label>
+        </div>
       </div>
-      <div class="hold-note">오늘 주문을 넣기 전 보유 상태를 입력하세요. 이 기기에만 저장됩니다.</div>
+      <div class="hold-note">보유 수량과 평단가를 입력하면 오늘 사고팔 주식수를 계산합니다. 이 기기에만 저장됩니다.</div>
+      <div class="pl" id="pl" hidden></div>
       <div class="trades" id="orders"></div>
       <p class="note" id="order-note"></p>
     </section>
@@ -167,7 +185,7 @@
     const HOLD_KEY = "godly-hold-v1";
 
     const C = { p1: "#FFFFFF", p2: "#AAAAAA", tqqq: "#e8714f", spym: "#b07cc0", sgov: "#5bb8e8",
-                upperBand: "#e070c0", lowerBand: "#afd485", cp: "#80dfff", alert: "#ff4d4d" };
+                upperBand: "#e070c0", lowerBand: "#afd485", cp: "#80dfff", alert: "#ff4d4d", peak: "#f5c26b" };
     const TONE_COLOR = { buy: C.cp, sell: C.alert, alert: C.alert, wait: C.p2, hold: C.p1 };
 
     let DATA = null;
@@ -201,40 +219,79 @@
     function saveHold(h) { try { localStorage.setItem(HOLD_KEY, JSON.stringify(h)); } catch (e) { /* 저장 불가 환경은 무시 */ } }
     function readHold() {
       const f = (id) => { const v = parseFloat($(id).value.replace(/,/g, "")); return isFinite(v) && v > 0 ? v : 0; };
-      return { t: f("in-t"), s: f("in-s"), c: f("in-c") };
+      return { t: f("in-t"), pt: f("in-pt"), s: f("in-s"), ps: f("in-ps"), c: f("in-c") };
     }
 
-    // ---------- 주문 수량 계산 (오늘 신호를 내 보유 수량에 순서대로 적용) ----------
+    // ---------- 주문 수량 계산 (오늘 신호를 내 보유 수량·평단가에 순서대로 적용) ----------
+    // costT/costS: 취득원가(=평단가 × 수량) 합계. 매수 시에만 평단가가 바뀌고, 매도 시에는
+    // 남은 수량의 평단가가 그대로 유지되면서 판 부분의 손익이 realized(실현손익 추정치)로 쌓인다.
     function applyActs(d, h0) {
       const P = d.params, pT = d.price.tqqq, pS = d.price.spym;
       const h = { ...h0 };
+      let costT = h.t * (h.pt || 0), costS = h.s * (h.ps || 0), realized = 0;
+
+      const sellT = (qty) => {
+        const avg = h.t > 0 ? costT / h.t : 0, proceeds = qty * pT;
+        realized += proceeds - avg * qty;
+        h.t -= qty; costT -= avg * qty;
+        h.s += proceeds / pS; costS += proceeds;
+      };
+      const sellS = (qty) => {
+        const avg = h.s > 0 ? costS / h.s : 0, proceeds = qty * pS;
+        realized += proceeds - avg * qty;
+        h.s -= qty; costS -= avg * qty;
+        h.t += proceeds / pT; costT += proceeds;
+      };
+
       for (const a of d.signal.todayActs) {
         if (a.type === "BUY") {
           const amt = a.stage < P.stages ? h.c / (P.stages + 1 - a.stage) : h.c;
-          h.c -= amt; h.t += amt * P.splitT / pT; h.s += amt * P.splitS / pS;
+          const amtT = amt * P.splitT, amtS = amt * P.splitS;
+          h.c -= amt;
+          h.t += amtT / pT; costT += amtT;
+          h.s += amtS / pS; costS += amtS;
         } else if (a.type === "TS" || a.type === "TP") {
-          const q = h.t * a.frac;
-          h.t -= q; h.s += q * pT / pS;
+          sellT(h.t * a.frac);
         } else if (a.type === "REBAL") {
           const total = h.t * pT + h.s * pS + h.c;
           const qty = (h.t * pT - total * P.rbT) / pT;
-          if (qty > 0) { h.t -= qty; h.s += qty * pT / pS; }
+          if (qty > 0) sellT(qty);
           else {
-            const sty = (h.s * pS - total * P.rbS) / pS;      // 양수: SPYM → TQQQ, 음수: TQQQ → SPYM
-            h.s -= sty; h.t += sty * pS / pT;
+            const sty = (h.s * pS - total * P.rbS) / pS;      // 양수: SPYM 매도, 음수: TQQQ 매도
+            if (sty > 0) sellS(sty); else if (sty < 0) sellT(-sty * pS / pT);
           }
         } else if (a.type === "EXIT") {
-          h.c += h.t * pT + h.s * pS; h.t = 0; h.s = 0;
+          realized += (h.t * pT - costT) + (h.s * pS - costS);
+          h.c += h.t * pT + h.s * pS; h.t = 0; h.s = 0; costT = 0; costS = 0;
         }
       }
+      h.pt = h.t > 0 ? costT / h.t : h0.pt;
+      h.ps = h.s > 0 ? costS / h.s : h0.ps;
+      h.realized = realized;
       return h;
     }
 
-    function tradeRow(ticker, deltaShares, price) {
+    function tradeRow(ticker, deltaShares, price, avgBefore, avgAfter, avgKnown) {
       const buy = deltaShares > 0;
       const sh = buy ? Math.floor(deltaShares + 1e-9) : Math.round(-deltaShares);
       if (sh < 1) return "";
-      return `<div class="trade"><span class="who">${tickers(ticker)}</span><span class="what ${buy ? "buy" : "sell"}">${buy ? "매수" : "매도"} ${num(sh, 0)}주<small>약 $${num(sh * price, 0)}</small></span></div>`;
+      const avgTxt = buy && avgKnown && Math.abs(avgAfter - avgBefore) > 0.005
+        ? `<br>평단가 $${num(avgBefore)} → $${num(avgAfter)}` : "";
+      return `<div class="trade"><span class="who">${tickers(ticker)}</span><span class="what ${buy ? "buy" : "sell"}">${buy ? "매수" : "매도"} ${num(sh, 0)}주<small>약 $${num(sh * price, 0)}${avgTxt}</small></span></div>`;
+    }
+
+    // 평단가를 입력(또는 0주 보유)해서 신뢰할 수 있을 때만 평단가 변화를 보여준다.
+    function renderPL(d, h0) {
+      const pT = d.price.tqqq, pS = d.price.spym, el = $("pl");
+      const items = [];
+      if (h0.t > 0 && h0.pt > 0) items.push(["TQQQ", h0.t, h0.pt, pT]);
+      if (h0.s > 0 && h0.ps > 0 && pS) items.push(["SPYM", h0.s, h0.ps, pS]);
+      if (!items.length) { el.hidden = true; return; }
+      el.hidden = false;
+      el.innerHTML = items.map(([tk, qty, avg, price]) => {
+        const pl = (price - avg) * qty, up = pl >= 0;
+        return `<span>${tickers(tk)} <b class="${up ? "up" : "down"}">${up ? "+" : ""}$${num(pl, 0)} (${pct0(pl / (avg * qty))})</b></span>`;
+      }).join("");
     }
 
     function renderOrders() {
@@ -242,6 +299,7 @@
       const d = DATA, h0 = readHold(), acts = d.signal.todayActs;
       const pT = d.price.tqqq, pS = d.price.spym;
       $("px").textContent = `TQQQ $${num(pT)}` + (pS ? ` · SPYM $${num(pS)}` : "");
+      renderPL(d, h0);
       const hasHold = h0.t > 0 || h0.s > 0 || h0.c > 0;
       let html = "";
 
@@ -252,11 +310,18 @@
       } else if (!hasHold) {
         html = `<div class="msg">보유 수량을 입력하면 오늘 사고팔 주식수를 계산합니다.</div>`;
       } else {
+        // 기존 보유가 있는데 평단가를 안 넣었으면 매수 후 평단가는 신뢰할 수 없으니 표시하지 않는다.
+        const tAvgKnown = h0.t === 0 || h0.pt > 0, sAvgKnown = h0.s === 0 || h0.ps > 0;
         const h1 = applyActs(d, h0);
         const dc = h1.c - h0.c;
-        html = tradeRow("TQQQ", h1.t - h0.t, pT) + tradeRow("SPYM", h1.s - h0.s, pS);
+        html = tradeRow("TQQQ", h1.t - h0.t, pT, h0.pt, h1.pt, tAvgKnown) +
+               tradeRow("SPYM", h1.s - h0.s, pS, h0.ps, h1.ps, sAvgKnown);
         if (Math.abs(dc) >= 1) {
           html += `<div class="trade"><span class="who">${tickers("SGOV")}</span><span class="what ${dc < 0 ? "sell" : "buy"}">${dc < 0 ? "매도" : "매수"} $${num(Math.abs(dc), 0)}<small>SGOV·현금 ${dc < 0 ? "사용" : "확보"}</small></span></div>`;
+        }
+        if (Math.abs(h1.realized) >= 1 && (tAvgKnown || sAvgKnown)) {
+          const up = h1.realized >= 0;
+          html += `<div class="trade"><span class="who" style="color:var(--p2)">추정 실현손익</span><span class="what ${up ? "buy" : "sell"}">${up ? "+" : ""}$${num(h1.realized, 0)}</span></div>`;
         }
         if (!html) html = `<div class="msg">보유 수량이 적어 오늘 주문할 주식이 1주 미만입니다.</div>`;
       }
@@ -281,12 +346,12 @@
       ].map(([k, v, sm]) => `<div><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="d">${esc(sm)}</div></div>`).join("");
     }
 
-    function drawBand(ch) {
+    function drawBand(ch, peak) {
       const { ctx, W, H } = hd("bandChart", 500, 300);
-      const all = ch.spx.concat(ch.up, ch.dn).filter((v) => v !== null);
+      const all = ch.spx.concat(ch.up, ch.dn, peak ? [peak] : []).filter((v) => v !== null);
       const min = Math.min(...all), max = Math.max(...all), range = max - min || 1, n = ch.spx.length;
       const X = (i) => 12 + (i / (n - 1)) * (W - 24);
-      const Y = (v) => H - 14 - ((v - min) / range) * (H - 28);
+      const Y = (v) => H - 14 - ((v - min) / range) * (H - 44);   // 위쪽 여백은 고점 라벨용
       const line = (arr, col, wid, dash) => {
         ctx.beginPath(); let go = false;
         arr.forEach((v, i) => { if (v === null) return; if (!go) { ctx.moveTo(X(i), Y(v)); go = true; } else ctx.lineTo(X(i), Y(v)); });
@@ -295,6 +360,16 @@
       line(ch.sma, "rgba(255,255,255,0.35)", 2, [6, 6]);
       line(ch.up, C.upperBand, 3);
       line(ch.dn, C.lowerBand, 3);
+      if (peak) {   // 사이클 고점 (TS 판단 기준)
+        const y = Y(peak);
+        ctx.beginPath(); ctx.moveTo(12, y); ctx.lineTo(W - 12, y);
+        ctx.strokeStyle = C.peak; ctx.lineWidth = 2.5; ctx.setLineDash([3, 7]); ctx.lineCap = "round"; ctx.stroke(); ctx.setLineDash([]); ctx.lineCap = "butt";
+        ctx.font = "600 22px -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
+        ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+        const label = `TS 기준 고점 ${num(peak)}`, ty = y > 34 ? y - 8 : y + 26, tw = ctx.measureText(label).width;
+        ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(10, ty - 21, tw + 8, 27);   // 선과 겹쳐도 읽히도록 배경
+        ctx.fillStyle = C.peak; ctx.fillText(label, 14, ty);
+      }
       line(ch.spx, C.cp, 5);
       ctx.fillStyle = C.cp; ctx.beginPath(); ctx.arc(X(n - 1), Y(ch.spx[n - 1]), 7, 0, Math.PI * 2); ctx.fill();
     }
@@ -364,7 +439,7 @@
         renderEvents(d);
         renderOrders();                       // 주문 + 사이클 상태
         status.hidden = true; main.hidden = false;   // 캔버스는 화면에 보인 뒤 그려야 크기가 맞음
-        drawBand(d.chart);
+        drawBand(d.chart, d.state.ts ? d.state.ts.peak : null);
       } catch (err) {
         status.hidden = false; main.hidden = true;
         status.innerHTML = `<div>데이터를 불러오지 못했습니다.<br>${esc(err.message)}</div><button class="btn" id="retry">다시 시도</button>`;
@@ -375,7 +450,7 @@
     }
 
     const saved = loadHold();
-    ["t", "s", "c"].forEach((k) => {
+    ["t", "pt", "s", "ps", "c"].forEach((k) => {
       if (saved[k]) $("in-" + k).value = saved[k];
       $("in-" + k).addEventListener("input", () => { saveHold(readHold()); renderOrders(); });
     });
