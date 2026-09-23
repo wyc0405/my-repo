@@ -326,7 +326,7 @@
         if (!html) html = `<div class="msg">보유 수량이 적어 오늘 주문할 주식이 1주 미만입니다.</div>`;
       }
       $("orders").innerHTML = html;
-      $("order-note").textContent = "수수료·세금과 체결가 차이는 반영하지 않은 추정치입니다.<br>시세는 " + (d.provisional ? "장중 가격이라 마감 시 달라질 수 있습니다." : "가장 최근 종가 기준입니다.");
+      $("order-note").textContent = "수수료·세금과 체결가 차이는 반영하지 않은 추정치입니다. 시세는 " + (d.provisional ? "장중 가격이라 마감 시 달라질 수 있습니다." : "가장 최근 종가 기준입니다.");
       renderState(d);   // 내일 예상 매수 수량 갱신
     }
 
