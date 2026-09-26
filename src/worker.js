@@ -10,26 +10,26 @@
 // ※ 전략 파라미터는 아래 PARAMS 에서만 바꾸면 됩니다.
 // ============================================================
 
-const VERSION = "v1.0";
+const VERSION = "v1.1";
 
 const PARAMS = {
-  UP_BAND: 0.04,            // 상단 밴드 (200일선 +2.5%)
-  DN_BAND: 0.045,             // 하단 밴드 (200일선 -3%)
-  TS_THRESH: 0.06,           // SPX가 사이클 고점 대비 -6% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  UP_BAND: 0.045,            // 상단 밴드 (200일선 +2.5%)
+  DN_BAND: 0.04,             // 하단 밴드 (200일선 -3%)
+  TS_THRESH: 0.05,           // SPX가 사이클 고점 대비 -6% → TS 발동 (발동 후 고점 리셋 = 연쇄)
   TS_THRESH_SELL: 0.3,       // TS 발동 시 TQQQ 보유량의 30% → SPYM
-  RB_RATE_T: 6 / 10,         // 리밸런싱 TQQQ 비중
-  RB_RATE_S: 4 / 10,         // 리밸런싱 SPYM 비중
+  RB_RATE_T: 9 / 10,         // 리밸런싱 TQQQ 비중
+  RB_RATE_S: 1 / 10,         // 리밸런싱 SPYM 비중
   FEE: 0.0007,               // 매매 수수료 0.07%
   TAX_RATE: 0.22,            // 양도소득세 22%
   DEDUCTION: 2500.0,         // 연간 기본공제 ($)
   START_CAPITAL: 10000.0,    // 시뮬레이션 시작 자산 ($)
   TP_SELL_SMALL: 0.1,        // 소익절: TQQQ 10% → SPYM
-  TP_SELL_BIG: 0.5,          // 대익절: TQQQ 50% → SPYM
+  TP_SELL_BIG: 0.9,          // 대익절: TQQQ 50% → SPYM
   SPLIT_BUY_RATE_T: 4 / 5,   // 분할매수 시 TQQQ 비중
   SPLIT_BUY_RATE_S: 1 / 5,   // 분할매수 시 SPYM 비중
   STAGE_NUM: 5,              // 분할매수 횟수
   TP_THRESH_HOLDS: [0.10, 0.25, 0.50], // 소익절 기준 (사이클 수익률)
-  BAND_ROLLING_N: 200,       // 이동평균 기간
+  BAND_ROLLING_N: 210,       // 이동평균 기간
   CASH_APR: 0.035            // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 
