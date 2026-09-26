@@ -180,7 +180,7 @@
     <p class="note" style="text-align:center;margin-top:0">초심을 잃지말자.</p>
   </main>
 
-  <script>
+<script>
     const API_URL = "/api/signal";   // 같은 도메인의 Pages Function
     const HOLD_KEY = "godly-hold-v1";
 
@@ -253,7 +253,7 @@
         } else if (a.type === "TS" || a.type === "TP") {
           sellT(h.t * a.frac);
         } else if (a.type === "REBAL") {
-          const total = h.t * pT + h.s * pS + h.c;
+          const total = h.t * pT + h.s * pS;          // 현금 제외: TQQQ+SPYM만으로 비중 (사이클 중 추가된 달러는 그대로)
           const qty = (h.t * pT - total * P.rbT) / pT;
           if (qty > 0) sellT(qty);
           else {
@@ -304,7 +304,7 @@
       let html = "";
 
       if (!acts.length) {
-        html = `<div class="msg">${d.state.active ? "오늘은 주문할 내용이 없습니다.  보유를 유지하세요." : "오늘은 주문할 내용이 없습니다.  SGOV로 대기하세요."}</div>`;
+        html = `<div class="msg">${d.state.active ? "오늘은 주문할 내용이 없습니다. 보유를 유지하세요." : "오늘은 주문할 내용이 없습니다. SGOV로 대기하세요."}</div>`;
       } else if (!pS) {
         html = `<div class="msg">SPYM 시세를 불러오지 못해 주식수를 계산할 수 없습니다. 새로고침 해보세요.</div>`;
       } else if (!hasHold) {
@@ -335,12 +335,12 @@
       const s = d.signal, p = d.price;
       const rows = s.lines.map(([t, a]) => `<div class="sig-row">${tickers(t)}<span class="tk-act">${esc(a)}</span></div>`).join("");
       const sub = d.state.position === "BELOW" ? `상단 밴드까지 ${pct(p.toUpPct)} 필요`
-                : p.zone === "IN_BAND" ? "밴드 안 · 이전 상승 포지션 유지" : `210일선 대비 ${pct(p.vsSmaPct)}`;
+                : p.zone === "IN_BAND" ? "밴드 안 · 이전 상승 포지션 유지" : `200일선 대비 ${pct(p.vsSmaPct)}`;
       $("sig").className = "info-box" + (s.tone === "alert" || s.tone === "sell" ? " is-alert" : "");
       $("sig").innerHTML = `<div class="headline" style="color:${TONE_COLOR[s.tone] || C.p1}">${esc(s.headline)}</div>${rows}<div class="sub">${esc(sub)}</div>`;
       $("prices").innerHTML = [
         ["SPX", num(p.spx), ""],
-        ["210일선", num(p.sma), ""],
+        ["200일선", num(p.sma), ""],
         [`상단 +${(d.params.upBand * 100).toFixed(1)}%`, num(p.upBand), pct(p.toUpPct)],
         [`하단 -${(d.params.dnBand * 100).toFixed(1)}%`, num(p.dnBand), pct(p.toDnPct)]
       ].map(([k, v, sm]) => `<div><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="d">${esc(sm)}</div></div>`).join("");
@@ -366,7 +366,7 @@
         ctx.strokeStyle = C.peak; ctx.lineWidth = 2.5; ctx.setLineDash([3, 7]); ctx.lineCap = "round"; ctx.stroke(); ctx.setLineDash([]); ctx.lineCap = "butt";
         ctx.font = "600 22px -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
         ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-        const label = `TS HIGH ${num(peak)}`, ty = y > 34 ? y - 8 : y + 26, tw = ctx.measureText(label).width;
+        const label = `TS 기준 고점 ${num(peak)}`, ty = y > 34 ? y - 8 : y + 26, tw = ctx.measureText(label).width;
         ctx.fillStyle = "rgba(0,0,0,0.75)"; ctx.fillRect(10, ty - 21, tw + 8, 27);   // 선과 겹쳐도 읽히도록 배경
         ctx.fillStyle = C.peak; ctx.fillText(label, 14, ty);
       }
