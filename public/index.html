@@ -132,7 +132,7 @@
       </div>
       <div class="updated"><span id="updated">-</span><span class="badge" id="prov" hidden>장중 잠정</span></div>
       <div class="content-row">
-        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 200일선, 상하단 밴드, 사이클 고점"></canvas></div>
+        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 210일선, 상하단 밴드, 사이클 고점"></canvas></div>
         <div class="info-box" id="sig"></div>
       </div>
       <div class="price-grid" id="prices"></div>
@@ -335,12 +335,12 @@
       const s = d.signal, p = d.price;
       const rows = s.lines.map(([t, a]) => `<div class="sig-row">${tickers(t)}<span class="tk-act">${esc(a)}</span></div>`).join("");
       const sub = d.state.position === "BELOW" ? `상단 밴드까지 ${pct(p.toUpPct)} 필요`
-                : p.zone === "IN_BAND" ? "밴드 안 · 이전 상승 포지션 유지" : `200일선 대비 ${pct(p.vsSmaPct)}`;
+                : p.zone === "IN_BAND" ? "밴드 안 · 이전 상승 포지션 유지" : `210일선 대비 ${pct(p.vsSmaPct)}`;
       $("sig").className = "info-box" + (s.tone === "alert" || s.tone === "sell" ? " is-alert" : "");
       $("sig").innerHTML = `<div class="headline" style="color:${TONE_COLOR[s.tone] || C.p1}">${esc(s.headline)}</div>${rows}<div class="sub">${esc(sub)}</div>`;
       $("prices").innerHTML = [
         ["SPX", num(p.spx), ""],
-        ["200일선", num(p.sma), ""],
+        ["210일선", num(p.sma), ""],
         [`상단 +${(d.params.upBand * 100).toFixed(1)}%`, num(p.upBand), pct(p.toUpPct)],
         [`하단 -${(d.params.dnBand * 100).toFixed(1)}%`, num(p.dnBand), pct(p.toDnPct)]
       ].map(([k, v, sm]) => `<div><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="d">${esc(sm)}</div></div>`).join("");
