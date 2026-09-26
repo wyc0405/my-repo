@@ -10,7 +10,7 @@
 // ※ 전략 파라미터는 아래 PARAMS 에서만 바꾸면 됩니다.
 // ============================================================
 
-const VERSION = "v1.1";
+const VERSION = "v1.2";
 
 const PARAMS = {
   UP_BAND: 0.045,            // 상단 밴드 (200일선 +2.5%)
@@ -95,7 +95,8 @@ async function fetchYahoo(symbol, range = RANGE) {
       const nowSec = Date.now() / 1000;
       const isOpen = !!reg && nowSec >= reg.start && nowSec < reg.end && (nowSec - meta.regularMarketTime) < 30 * 60;
 
-      return { dates, closes, time: meta.regularMarketTime, isOpen };
+      return { dates, closes, time: meta.regularMarketTime, isOpen,
+               sessionStart: reg ? reg.start : null, sessionEnd: reg ? reg.end : null };
     } catch (e) {
       lastErr = e;
     }
@@ -477,7 +478,8 @@ function makePayload(dates, spx, tqqq, meta, P = PARAMS) {
 // ------------------------------------------------------------
 // 4) HTTP 핸들러
 // ------------------------------------------------------------
-async function buildPayload() {
+// override : { spx, tqqq } — 마지막 거래일 종가를 이 값으로 가정한 신호 (자동매매 프로그램의 "만약" 계산용)
+async function buildPayload(override) {
   const [spxRaw, tqqqRaw, spym] = await Promise.all([
     fetchYahoo("^GSPC"),
     fetchYahoo("TQQQ"),
@@ -489,11 +491,21 @@ async function buildPayload() {
   spxRaw.dates.forEach((d, i) => {
     if (tMap.has(d)) { dates.push(d); spx.push(spxRaw.closes[i]); tqqq.push(tMap.get(d)); }
   });
-  return makePayload(dates, spx, tqqq, {
+  let whatIf = null;
+  if (override && dates.length) {
+    const last = dates.length - 1;
+    if (Number.isFinite(override.spx) && override.spx > 0) spx[last] = override.spx;
+    if (Number.isFinite(override.tqqq) && override.tqqq > 0) tqqq[last] = override.tqqq;
+    whatIf = { spx: spx[last], tqqq: tqqq[last] };
+  }
+  const payload = makePayload(dates, spx, tqqq, {
     time: Math.max(spxRaw.time, tqqqRaw.time),
     isOpen: spxRaw.isOpen || tqqqRaw.isOpen,
     spym
   });
+  payload.session = { start: spxRaw.sessionStart, end: spxRaw.sessionEnd };   // 정규장 시작·마감 (유닉스 초)
+  payload.whatIf = whatIf;
+  return payload;
 }
 
 const JSON_HEADERS = {
@@ -502,6 +514,18 @@ const JSON_HEADERS = {
 };
 
 async function handleSignal(request, ctx) {
+  // ?spx=...&tqqq=... 이 있으면 캐시 없이 "만약" 계산
+  const q = new URL(request.url).searchParams;
+  if (q.has("spx") || q.has("tqqq")) {
+    try {
+      const payload = await buildPayload({ spx: parseFloat(q.get("spx")), tqqq: parseFloat(q.get("tqqq")) });
+      return new Response(JSON.stringify(payload), { headers: { ...JSON_HEADERS, "Cache-Control": "no-store" } });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: String((err && err.message) || err) }), {
+        status: 500, headers: { ...JSON_HEADERS, "Cache-Control": "no-store" }
+      });
+    }
+  }
   const cache = caches.default;
   const cacheKey = new Request(new URL("/__cache/signal", request.url).toString());
   const hit = await cache.match(cacheKey);
