@@ -37,10 +37,10 @@ const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
 const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
 
 const PARAMS = {
-  UP_BAND: 0.025,            // 상단 밴드 (이동평균선 +2.5%)
-  DN_BAND: 0.03,             // 하단 밴드 (이동평균선 -3%)
-  TS_THRESH: 0.10,           // SPX가 사이클 고점 대비 -10% → TS 발동 (발동 후 고점 리셋 = 연쇄)
-  TS_THRESH_SELL: 0.5,       // TS 발동 시 TQQQ 보유량의 50% → SPYM
+  UP_BAND: 0.045,            // 상단 밴드 (이동평균선 +2.5%)
+  DN_BAND: 0.04,             // 하단 밴드 (이동평균선 -3%)
+  TS_THRESH: 0.05,           // SPX가 사이클 고점 대비 -10% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  TS_THRESH_SELL: 0.3,       // TS 발동 시 TQQQ 보유량의 50% → SPYM
   RB_RATE_T: 9 / 10,         // 리밸런싱 TQQQ 비중
   RB_RATE_S: 1 / 10,         // 리밸런싱 SPYM 비중
   FEE: 0.0007,               // 매매 수수료 0.07%
@@ -48,12 +48,12 @@ const PARAMS = {
   DEDUCTION: 2500.0,         // 연간 기본공제 ($)
   START_CAPITAL: 10000.0,    // 시뮬레이션 시작 자산 ($)
   TP_SELL_SMALL: 0.1,        // 소익절: TQQQ 10% → SPYM
-  TP_SELL_BIG: 0.5,          // 대익절: TQQQ 50% → SPYM
+  TP_SELL_BIG: 0.9,          // 대익절: TQQQ 50% → SPYM
   SPLIT_BUY_RATE_T: 4 / 5,   // 분할매수 시 TQQQ 비중
   SPLIT_BUY_RATE_S: 1 / 5,   // 분할매수 시 SPYM 비중
   STAGE_NUM: 5,              // 분할매수 횟수
   TP_THRESH_HOLDS: [0.10, 0.25, 0.50], // 소익절 기준 (사이클 수익률)
-  BAND_ROLLING_N: 200,       // 이동평균 기간 (일) — 바꾸면 웹페이지·텔레그램 알림의 "N일선"·"N슨피단" 표시도 함께 바뀜
+  BAND_ROLLING_N: 210,       // 이동평균 기간 (일) — 바꾸면 웹페이지·텔레그램 알림의 "N일선"·"N슨피단" 표시도 함께 바뀜
   CASH_APR: 0.035            // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 
