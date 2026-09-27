@@ -1,10 +1,16 @@
 {
-  // ★ name 은 Cloudflare 대시보드에서 만든 Worker(프로젝트) 이름과 똑같이 맞추세요.
+  // ★ name 은 Cloudflare 대시보드의 Worker 이름과 똑같이 (지금 쓰는 값 그대로 두세요)
   "name": "my-repo",
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
+  },
+  // 텔레그램 알림 예약 실행 (UTC 기준)
+  //   "30 12 * * 1-5" → 한국시간 평일 21:30 사전 알림
+  //   "20 20 * * 1-5", "20 21 * * 1-5" → 미국 16:20 ET 확정 알림 (서머타임/겨울 중 맞는 쪽만 실제로 보냄)
+  "triggers": {
+    "crons": ["30 12 * * 1-5", "20 20 * * 1-5", "20 21 * * 1-5"]
   }
 }
