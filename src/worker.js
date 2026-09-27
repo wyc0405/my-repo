@@ -35,7 +35,7 @@ const TRADE_TYPES = ["BUY", "TS", "TP", "REBAL", "EXIT"];
 // 이동평균 기간에 따라 바뀌는 이름 (예: 200 → "200일선", "200슨피단")
 const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
 //const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
-const strategyName = (P = PARAMS) => `SPX_TQQQ_매매`;
+const strategyName = (P = PARAMS) => `SPX_TQQQ`;
 
 const PARAMS = {
   UP_BAND: 0.045,            // 상단 밴드 (이동평균선 +2.5%)
