@@ -8,6 +8,10 @@
 //     필요한 비밀값 (Cloudflare 대시보드 → Worker → Settings → Variables and Secrets 에서 Secret 으로 추가)
 //       TELEGRAM_BOT_TOKEN : BotFather 에서 받은 봇 토큰
 //       TELEGRAM_CHAT_ID   : 알림 받을 내 채팅 ID
+//     점검·시험 (브라우저 주소창에 입력)
+//       /api/telegram-test             → 설정 점검 (값은 보여주지 않고, 메시지도 보내지 않음)
+//       /api/telegram-test?find=1      → 봇에게 말을 건 대화에 '채팅 ID'를 텔레그램으로 알려 줌
+//       /api/telegram-test?key=채팅ID   → 시험 알림 1통 보내기 (&mode=post 는 마감 후 형식)
 //
 // 파이썬 백테스트(Strategy_1_TQQQ_SPX_200.py)의 매매 로직을 그대로 옮겨서
 // 야후 파이낸스의 SPX(^GSPC) / TQQQ 일봉으로 전략을 처음부터 재현(시뮬레이션)하고,
@@ -33,10 +37,10 @@ const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
 const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
 
 const PARAMS = {
-  UP_BAND: 0.045,            // 상단 밴드 (이동평균선 +2.5%)
-  DN_BAND: 0.04,             // 하단 밴드 (이동평균선 -3%)
-  TS_THRESH: 0.05,           // SPX가 사이클 고점 대비 -10% → TS 발동 (발동 후 고점 리셋 = 연쇄)
-  TS_THRESH_SELL: 0.3,       // TS 발동 시 TQQQ 보유량의 50% → SPYM
+  UP_BAND: 0.025,            // 상단 밴드 (이동평균선 +2.5%)
+  DN_BAND: 0.03,             // 하단 밴드 (이동평균선 -3%)
+  TS_THRESH: 0.10,           // SPX가 사이클 고점 대비 -10% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  TS_THRESH_SELL: 0.5,       // TS 발동 시 TQQQ 보유량의 50% → SPYM
   RB_RATE_T: 9 / 10,         // 리밸런싱 TQQQ 비중
   RB_RATE_S: 1 / 10,         // 리밸런싱 SPYM 비중
   FEE: 0.0007,               // 매매 수수료 0.07%
@@ -44,12 +48,12 @@ const PARAMS = {
   DEDUCTION: 2500.0,         // 연간 기본공제 ($)
   START_CAPITAL: 10000.0,    // 시뮬레이션 시작 자산 ($)
   TP_SELL_SMALL: 0.1,        // 소익절: TQQQ 10% → SPYM
-  TP_SELL_BIG: 0.9,          // 대익절: TQQQ 50% → SPYM
+  TP_SELL_BIG: 0.5,          // 대익절: TQQQ 50% → SPYM
   SPLIT_BUY_RATE_T: 4 / 5,   // 분할매수 시 TQQQ 비중
   SPLIT_BUY_RATE_S: 1 / 5,   // 분할매수 시 SPYM 비중
   STAGE_NUM: 5,              // 분할매수 횟수
   TP_THRESH_HOLDS: [0.10, 0.25, 0.50], // 소익절 기준 (사이클 수익률)
-  BAND_ROLLING_N: 210,       // 이동평균 기간 (일) — 바꾸면 웹페이지·텔레그램 알림의 "N일선"·"N슨피단" 표시도 함께 바뀜
+  BAND_ROLLING_N: 200,       // 이동평균 기간 (일) — 바꾸면 웹페이지·텔레그램 알림의 "N일선"·"N슨피단" 표시도 함께 바뀜
   CASH_APR: 0.035            // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 
@@ -608,14 +612,56 @@ function tradeActs(p) {
   return (p.signal.todayActs || []).filter((a) => TRADE_TYPES.includes(a.type));
 }
 
+// ---- 텔레그램 API ----
+// 값을 붙여 넣을 때 딸려 들어가기 쉬운 공백·줄바꿈·따옴표·< > 를 떼어 냄
+const JUNK = /[\s"'`<>\u200B]/g;
+const cleanChatId = (v) => String(v == null ? "" : v).replace(JUNK, "");
+function cleanToken(v) {
+  const t = String(v == null ? "" : v).replace(JUNK, "");
+  return /^bot\d+:/i.test(t) ? t.slice(3) : t;          // 앞에 "bot"까지 붙여 넣은 경우
+}
+function tgConfig(env) {
+  const token = cleanToken(env.TELEGRAM_BOT_TOKEN), chatId = cleanChatId(env.TELEGRAM_CHAT_ID);
+  return { token, chatId, botId: token.includes(":") ? token.split(":")[0] : "" };
+}
+
+// 결과: { ok, status, desc, result }  (status 0 = 텔레그램 서버에 연결 못 함)
+async function tgCall(token, method, body) {
+  let res;
+  try {
+    res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {})
+    });
+  } catch (err) {
+    return { ok: false, status: 0, desc: "텔레그램 서버에 연결하지 못했습니다" };
+  }
+  let data = null;
+  try { data = await res.json(); } catch (err) { /* 본문이 JSON 이 아님 */ }
+  return { ok: !!(res.ok && data && data.ok), status: res.status, desc: (data && data.description) || "", result: data && data.result };
+}
+
+// 텔레그램 오류 → 우리말 안내
+function tgHint(r) {
+  const d = String(r.desc || "").toLowerCase();
+  if (r.status === 0) return "잠시 뒤 다시 시도하세요.";
+  if (r.status === 401 || r.status === 404)
+    return "봇 토큰이 틀렸습니다. BotFather가 준 토큰 전체(숫자:영문)를 TELEGRAM_BOT_TOKEN에 다시 넣으세요. (/revoke로 토큰을 바꿨다면 새 토큰으로)";
+  if (d.includes("chat not found"))
+    return "채팅 ID가 틀렸거나, 아직 봇에게 말을 건 적이 없습니다. 텔레그램에서 내 봇 대화방을 열어 '시작'(Start)을 누른 뒤 다시 해 보세요.";
+  if (d.includes("blocked")) return "봇이 차단돼 있습니다. 봇 대화방에서 차단을 풀고 '시작'(Start)을 누르세요.";
+  if (d.includes("initiate")) return "텔레그램에서 내 봇 대화방을 열어 '시작'(Start)을 먼저 눌러야 봇이 메시지를 보낼 수 있습니다.";
+  if (d.includes("bots can't send messages to bots")) return "채팅 ID 자리에 봇의 ID가 들어가 있습니다. 내 계정의 채팅 ID를 넣으세요.";
+  if (r.status === 429) return "짧은 시간에 너무 많이 보냈습니다. 1분 뒤 다시 시도하세요.";
+  return "";
+}
+
 async function sendTelegram(env, text) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) throw new Error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 비밀값이 없습니다");
-  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, disable_web_page_preview: true })
-  });
-  if (!res.ok) throw new Error(`텔레그램 전송 실패 (HTTP ${res.status}) ${await res.text()}`);
+  const { token, chatId } = tgConfig(env);
+  if (!token || !chatId) throw new Error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 값이 없습니다");
+  const r = await tgCall(token, "sendMessage", { chat_id: chatId, text, disable_web_page_preview: true });
+  if (!r.ok) throw new Error(`텔레그램 전송 실패 (HTTP ${r.status}) ${r.desc}`);
 }
 
 // 알림에 쓰는 이름·이동평균 표시 (신호 계산에 쓴 PARAMS 값을 그대로 따름)
@@ -671,20 +717,146 @@ async function handleScheduled(event, env) {
   if (msg) await sendTelegram(env, msg);
 }
 
-// 알림 시험: /api/telegram-test?key=<TELEGRAM_CHAT_ID>&mode=pre|post  (신호가 없어도 지금 상태로 한 번 보냄)
+// ---- 알림 점검·시험 (브라우저 주소창에 입력) ----
+//   /api/telegram-test             설정 점검 (값은 보여주지 않고, 메시지도 보내지 않음)
+//   /api/telegram-test?find=1      최근 24시간 안에 봇에게 말을 건 대화에 '채팅 ID'를 텔레그램으로 답장
+//   /api/telegram-test?key=채팅ID   지금 상태로 시험 알림 1통 보내기 (&mode=post 는 마감 후 형식)
+const TG_NAMES = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
+const digitsInfo = (v) => `${v.length}자리, 끝 두 자리 ${v.slice(-2)}`;
+
 async function handleTelegramTest(request, env) {
   const q = new URL(request.url).searchParams;
-  if (!env.TELEGRAM_CHAT_ID || q.get("key") !== String(env.TELEGRAM_CHAT_ID)) {
-    return new Response("key가 맞지 않습니다", { status: 403 });
+  const { token, chatId, botId } = tgConfig(env);
+  const lines = [`텔레그램 알림 점검 (worker ${VERSION})`, ""];
+  const done = (status) => new Response(lines.join("\n") + "\n", {
+    status, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
+  });
+
+  // 1) 두 값이 이 Worker 실행 환경에 들어와 있는지 (값 자체는 표시하지 않음)
+  const tokenOk = /^\d+:[A-Za-z0-9_-]{20,}$/.test(token);
+  const idOk = /^-?\d+$/.test(chatId);
+  lines.push(`① 봇 토큰 (TELEGRAM_BOT_TOKEN): ${!token ? "❌ 없음" : tokenOk ? "✅ 있음"
+    : "⚠ 있지만 형식이 이상함 → BotFather가 준 '숫자:영문' 전체를 그대로 넣어야 합니다"}`);
+  lines.push(`② 채팅 ID (TELEGRAM_CHAT_ID): ${!chatId ? "❌ 없음" : idOk ? `✅ 있음 (숫자 ${chatId.replace("-", "").length}자리)`
+    : "⚠ 있지만 숫자가 아님 → 채팅 ID는 숫자만 넣습니다"}`);
+  if (/^-?\d+$/.test(token) && chatId.includes(":")) lines.push("   ⚠ 두 값이 서로 바뀌어 들어간 것 같습니다 (토큰 ↔ 채팅 ID).");
+  if (chatId && chatId === botId)
+    lines.push("   ❌ 채팅 ID 자리에 '봇 ID'(토큰 맨 앞 숫자)가 들어가 있습니다. 내 계정의 채팅 ID를 넣으세요.");
+  const similar = Object.keys(env || {}).filter((n) => !TG_NAMES.includes(n) && /tele|chat|token|bot|텔레|채팅|토큰/i.test(n));
+  if (similar.length)
+    lines.push(`   참고: 이름이 비슷한 값이 있습니다 → ${similar.map((n) => JSON.stringify(n)).join(", ")} (이름을 위와 똑같이 맞춰 주세요)`);
+
+  // 2) 토큰이 진짜인지 텔레그램에 물어봄
+  let meOk = false;
+  if (token) {
+    const me = await tgCall(token, "getMe");
+    meOk = me.ok;
+    if (me.ok) lines.push(`③ 봇 연결: ✅ @${me.result && me.result.username} 확인됨`);
+    else {
+      lines.push(`③ 봇 연결: ❌ ${me.status ? `텔레그램이 이 토큰을 거부했습니다 (HTTP ${me.status} ${me.desc})` : me.desc}`);
+      if (tgHint(me)) lines.push("   → " + tgHint(me));
+    }
   }
+  if (!token || !chatId) {
+    lines.push("",
+      "→ 이 Worker가 실행될 때 위 값이 보이지 않습니다. 아래를 확인하세요.",
+      "  1) Cloudflare → Workers & Pages → my-repo → Settings(설정) → 'Variables and Secrets'에 넣었는지",
+      "     (Settings → Build 쪽 'Variables and secrets'는 빌드할 때만 쓰는 칸이라 여기서는 보이지 않습니다)",
+      "  2) Type을 'Secret'으로 골랐는지 ('Text'로 넣으면 GitHub에서 다시 배포될 때 지워질 수 있습니다)",
+      "  3) 이름이 정확히 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 인지 (모두 대문자, 밑줄 _)",
+      "  4) 값을 넣은 뒤 'Deploy'(배포)까지 눌렀는지 → 1~2분 뒤 이 페이지를 새로고침");
+  }
+  if (!meOk) return done(200);
+
+  // 3-a) 채팅 ID 찾기: 봇에게 말을 건 대화에 그 대화의 채팅 ID를 텔레그램으로 답장 (웹페이지에는 표시하지 않음)
+  if (q.has("find")) return done(await tgFindChats(token, chatId, lines));
+
+  // 3-b) 점검만
+  const findTip = [
+    "  · 채팅 ID 확인하기: 텔레그램에서 내 봇에게 아무 말이나 보낸 뒤, 주소 끝에 ?find=1 을 붙여서 열기",
+    "      → 봇이 텔레그램으로 채팅 ID를 알려 줍니다 (보안상 이 페이지에는 표시하지 않음)"
+  ];
+  if (!chatId) {
+    lines.push("", "다음 단계", ...findTip);
+    return done(200);
+  }
+  if (!q.has("key")) {
+    lines.push("",
+      "다음 단계",
+      "  · 시험 알림 보내기: 주소 끝에 ?key=채팅ID 를 붙여서 열기",
+      "      예) /api/telegram-test?key=123456789   (숫자만, < > 없이)",
+      ...findTip);
+    return done(200);
+  }
+
+  // 3-c) 시험 전송: key 가 저장된 채팅 ID와 같을 때만 (아무나 알림을 보내지 못하게)
+  const key = cleanChatId(q.get("key"));
+  if (key !== chatId) {
+    lines.push("",
+      "❌ 주소에 넣은 key가 저장된 TELEGRAM_CHAT_ID와 다릅니다. (보안상 전체 값은 표시하지 않습니다)",
+      `   주소에 넣은 key : ${key ? digitsInfo(key) : "(비어 있음)"}`,
+      `   저장된 채팅 ID  : ${digitsInfo(chatId)}`);
+    if (botId && key === botId) lines.push("   ※ 주소에 넣은 값은 '봇 ID'(토큰 맨 앞 숫자)입니다. 내 계정의 채팅 ID를 넣으세요.");
+    lines.push("   → 어느 쪽이 맞는지 모르겠으면: 봇에게 아무 말이나 보낸 뒤 ?find=1 로 열어 진짜 채팅 ID를 확인하세요.");
+    return done(403);
+  }
+  let text;
   try {
     const p = await buildPayload();
-    const text = q.get("mode") === "post" ? postMessage(p, true) : preMessage(p, true);
-    await sendTelegram(env, text);
-    return new Response("보냈습니다:\n\n" + text, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    text = q.get("mode") === "post" ? postMessage(p, true) : preMessage(p, true);
   } catch (err) {
-    return new Response("실패: " + String((err && err.message) || err), { status: 500 });
+    lines.push("", "❌ 시그널 계산 실패: " + String((err && err.message) || err));
+    return done(500);
   }
+  const r = await tgCall(token, "sendMessage", { chat_id: chatId, text, disable_web_page_preview: true });
+  if (!r.ok) {
+    lines.push("", `❌ 전송 실패 (HTTP ${r.status}) ${r.desc}`);
+    const h = tgHint(r);
+    if (h) lines.push("   → " + h);
+    return done(500);
+  }
+  lines.push("", "✅ 보냈습니다. 텔레그램을 확인하세요.", "", text);
+  return done(200);
+}
+
+// 최근 24시간 안에 봇에게 말을 건 대화마다 그 대화의 채팅 ID를 답장. 돌려주는 값 = HTTP 상태
+async function tgFindChats(token, chatId, lines) {
+  const u = await tgCall(token, "getUpdates", { timeout: 0, limit: 100 });
+  if (!u.ok) {
+    lines.push("", `❌ 봇에게 온 메시지를 읽지 못했습니다 (HTTP ${u.status}) ${u.desc}`);
+    if (u.status === 409) lines.push("   → 이 봇이 다른 서비스(웹훅)에 연결돼 있습니다. 알림 전용 봇을 새로 만드는 편이 간단합니다.");
+    else if (tgHint(u)) lines.push("   → " + tgHint(u));
+    return 500;
+  }
+  const chats = new Map();
+  let last = null;
+  for (const up of u.result || []) {
+    last = last === null ? up.update_id : Math.max(last, up.update_id);
+    const m = up.message || up.edited_message || up.channel_post || up.edited_channel_post || up.my_chat_member
+      || (up.callback_query && up.callback_query.message);
+    if (m && m.chat && m.chat.id !== undefined) chats.set(String(m.chat.id), m.chat);
+  }
+  if (!chats.size) {
+    lines.push("", "⚠ 최근 24시간 동안 봇에게 온 메시지가 없습니다.",
+      "   → 텔레그램에서 내 봇 대화방을 열어 '시작'(Start)을 누르거나 아무 말이나(예: 안녕) 보낸 뒤, 이 페이지를 새로고침하세요.");
+    return 200;
+  }
+  let sent = 0;
+  for (const id of [...chats.keys()].slice(0, 5)) {
+    const text = [
+      `이 대화의 채팅 ID: ${id}`,
+      "",
+      "Cloudflare → my-repo → Settings → Variables and Secrets 의 TELEGRAM_CHAT_ID 에 이 숫자만 그대로 넣으세요.",
+      !chatId ? "(아직 TELEGRAM_CHAT_ID 가 저장돼 있지 않습니다)"
+        : id === chatId ? "(지금 저장된 값과 같습니다 ✅)" : "(지금 저장된 값과 다릅니다 ❌ → 이 숫자로 바꾸세요)"
+    ].join("\n");
+    if ((await tgCall(token, "sendMessage", { chat_id: id, text })).ok) sent++;
+  }
+  // 읽음 처리 → 이 주소를 다시 열어도 같은 답장이 되풀이되지 않음
+  if (last !== null) await tgCall(token, "getUpdates", { offset: last + 1, timeout: 0, limit: 1 });
+  lines.push("", sent ? `✅ 봇에게 말을 건 대화 ${sent}곳에 채팅 ID를 텔레그램으로 보냈습니다. 텔레그램을 확인하세요.`
+    : "❌ 채팅 ID 답장을 보내지 못했습니다.", "   (보안상 채팅 ID는 이 페이지에 표시하지 않습니다)");
+  return sent ? 200 : 500;
 }
 
 export default {
