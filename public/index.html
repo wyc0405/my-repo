@@ -132,7 +132,7 @@
       </div>
       <div class="updated"><span id="updated">-</span><span class="badge" id="prov" hidden>장중 잠정</span></div>
       <div class="content-row">
-        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 210일선, 상하단 밴드, 사이클 고점"></canvas></div>
+        <div class="chart-box"><canvas id="bandChart" role="img" aria-label="최근 90거래일 SPX와 이동평균선, 상하단 밴드, 사이클 고점"></canvas></div>
         <div class="info-box" id="sig"></div>
       </div>
       <div class="price-grid" id="prices"></div>
@@ -436,7 +436,8 @@
         if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
         DATA = d;
         $("ver").textContent = d.version;
-        $("updated").textContent = kst(d.asOf);
+        $("updated").textContent = kst(d.asOf) +
+          (d.lastDate ? ` · 미국 ${+d.lastDate.slice(5, 7)}/${+d.lastDate.slice(8, 10)} 거래일` : "");
         $("prov").hidden = !d.provisional;
         $("bandChart").setAttribute("aria-label", `최근 90거래일 SPX와 ${smaName(d)}, 상하단 밴드, 사이클 고점`);
         renderSignal(d);
