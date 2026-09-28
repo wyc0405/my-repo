@@ -20,7 +20,7 @@
 // ※ 전략 파라미터는 아래 PARAMS 에서만 바꾸면 됩니다.
 // ============================================================
 
-const VERSION = "v1.3";
+const VERSION = "v1.4";
 
 // ------------------------------------------------------------
 // 텔레그램 알림 설정
@@ -34,8 +34,7 @@ const TRADE_TYPES = ["BUY", "TS", "TP", "REBAL", "EXIT"];
 
 // 이동평균 기간에 따라 바뀌는 이름 (예: 200 → "200일선", "200슨피단")
 const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
-//const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
-const strategyName = (P = PARAMS) => `SPX_TQQQ`;
+const strategyName = (P = PARAMS) => `TQQQ_SPX`;
 
 const PARAMS = {
   UP_BAND: 0.045,            // 상단 밴드 (이동평균선 +2.5%)
@@ -60,6 +59,8 @@ const PARAMS = {
 
 const RANGE = "5y";          // 시뮬레이션에 쓰는 과거 데이터 기간
 const CACHE_SECONDS = 60;    // 야후 호출 보호용 캐시
+const SETTLE_MIN_SEC = 5 * 60;   // 장 마감 후 최소 이만큼은 '잠정'으로 둠 (공식 종가 반영 대기)
+const SETTLE_MAX_SEC = 15 * 60;  // 시세 시각이 마감 전에 머물러 있어도 이 시간이 지나면 종가로 확정
 
 const YAHOO_HOSTS = ["query2.finance.yahoo.com", "query1.finance.yahoo.com"];
 const FETCH_HEADERS = {
@@ -110,17 +111,18 @@ async function fetchYahoo(symbol, range = RANGE) {
         else { dates.push(d); closes.push(v); }
       });
 
-      // 마지막 봉을 현재가(장중이면 실시간, 마감 후면 종가)로 교체/추가
-      const liveDate = etDate(meta.regularMarketTime);
+      // 마지막 봉을 현재가(장중이면 실시간, 마감 후면 종가)로 교체/추가 — 현재가가 비어 있으면 건드리지 않음
+      const lp = meta.regularMarketPrice, lt = meta.regularMarketTime;
+      const liveDate = lt > 0 ? etDate(lt) : null;
       const lastDate = dates[dates.length - 1];
-      if (lastDate === liveDate) closes[closes.length - 1] = meta.regularMarketPrice;
-      else if (liveDate > lastDate) { dates.push(liveDate); closes.push(meta.regularMarketPrice); }
+      if (lp > 0 && liveDate) {
+        if (lastDate === liveDate) closes[closes.length - 1] = lp;
+        else if (!lastDate || liveDate > lastDate) { dates.push(liveDate); closes.push(lp); }
+      }
 
       const reg = meta.currentTradingPeriod && meta.currentTradingPeriod.regular;
-      const nowSec = Date.now() / 1000;
-      const isOpen = !!reg && nowSec >= reg.start && nowSec < reg.end && (nowSec - meta.regularMarketTime) < 30 * 60;
-
-      return { dates, closes, time: meta.regularMarketTime, isOpen,
+      return { dates, closes, time: lt > 0 ? lt : 0, liveDate: lp > 0 ? liveDate : null,
+               sesDate: reg ? etDate(reg.start) : null,
                sessionStart: reg ? reg.start : null, sessionEnd: reg ? reg.end : null };
     } catch (e) {
       lastErr = e;
@@ -506,11 +508,11 @@ function makePayload(dates, spx, tqqq, meta, P = PARAMS) {
 // ------------------------------------------------------------
 // override : { spx, tqqq } — 마지막 거래일 종가를 이 값으로 가정한 신호 (자동매매 프로그램의 "만약" 계산용)
 async function buildPayload(override) {
-  const [spxRaw, tqqqRaw, spym] = await Promise.all([
+  const [spxRaw, tqqqRaw, spymRaw] = await Promise.all([
     fetchYahoo("^GSPC"),
     fetchYahoo("TQQQ"),
     // 실제 주문 수량 계산용 SPYM 현재가 (실패해도 신호는 정상 표시)
-    fetchYahoo("SPYM", "5d").then((r) => r.closes[r.closes.length - 1]).catch(() => null)
+    fetchYahoo("SPYM", "5d").catch(() => null)
   ]);
   const tMap = new Map(tqqqRaw.dates.map((d, i) => [d, tqqqRaw.closes[i]]));
   const dates = [], spx = [], tqqq = [];
@@ -524,9 +526,19 @@ async function buildPayload(override) {
     if (Number.isFinite(override.tqqq) && override.tqqq > 0) tqqq[last] = override.tqqq;
     whatIf = { spx: spx[last], tqqq: tqqq[last] };
   }
+  // SPYM 가격은 신호와 같은 거래일 것만 (오래된 가격이면 비워 둠 → 자동매매는 증권사 시세를 씀)
+  const lastD = dates[dates.length - 1];
+  const spym = spymRaw && spymRaw.dates[spymRaw.dates.length - 1] === lastD ? spymRaw.closes[spymRaw.closes.length - 1] : null;
+  // 잠정 여부: 오늘 장 시세가 들어온 뒤 → 장중이거나, 마감 직후 공식 종가가 반영되기 전이면 잠정
+  const nowSec = Date.now() / 1000, S = spxRaw;
+  const todayLive = !!S.sesDate && S.liveDate === S.sesDate;
+  const inSession = todayLive && nowSec >= S.sessionStart && nowSec < S.sessionEnd;
+  const quotesAfterClose = Math.min(spxRaw.time, tqqqRaw.time) >= S.sessionEnd;
+  const settling = todayLive && nowSec >= S.sessionEnd
+    && (nowSec < S.sessionEnd + SETTLE_MIN_SEC || (!quotesAfterClose && nowSec < S.sessionEnd + SETTLE_MAX_SEC));
   const payload = makePayload(dates, spx, tqqq, {
     time: Math.max(spxRaw.time, tqqqRaw.time),
-    isOpen: spxRaw.isOpen || tqqqRaw.isOpen,
+    isOpen: inSession || settling,
     spym
   });
   payload.session = { start: spxRaw.sessionStart, end: spxRaw.sessionEnd };   // 정규장 시작·마감 (유닉스 초)
@@ -601,9 +613,9 @@ function preAlertReasons(p, X) {
   if (!buying && s.rebalanced === false && pr.zone === "ABOVE" && pr.toUpPct >= -X)
     out.push(`리밸런싱: SPX가 ${pct(pr.toUpPct)} 이상 내려 밴드 안으로 들어오면`);
   if (s.tp && s.cycleRet !== null) {
-    // 사이클 수익률은 대략 SPX의 3배 가까이 움직이므로 X×3 안쪽이면 알림
+    // 사이클 수익률(R)은 자산이 SPX의 약 3배로 움직이므로 (1+R)×3×X %p 정도까지 움직일 수 있음
     const near = [s.tp.nextSmall, s.tp.nextBig].filter((t) => t !== null && t !== undefined && t > s.cycleRet
-      && (t - s.cycleRet) * 100 <= X * 3);
+      && (t - s.cycleRet) * 100 <= X * 3 * (1 + s.cycleRet));
     if (near.length) out.push(`익절(TP): 사이클 수익률 ${(s.cycleRet * 100).toFixed(1)}% → 기준 ${(Math.min(...near) * 100).toFixed(0)}%`);
   }
   return out;
@@ -699,11 +711,22 @@ function postMessage(p, force = false) {
   ].join("\n");
 }
 
+// 야후가 잠깐 안 되면 1분 뒤 다시 (최대 3번)
+async function buildPayloadRetry() {
+  for (let i = 0; ; i++) {
+    try { return await buildPayload(); }
+    catch (err) {
+      if (i >= 2) throw err;
+      await new Promise((r) => setTimeout(r, 60 * 1000));
+    }
+  }
+}
+
 async function handleScheduled(event, env) {
   const now = etNow(event.scheduledTime);
-  if (event.cron === "30 12 * * 1-5") {                  // 한국시간 21:30 사전 알림
+  if (new Date(event.scheduledTime).getUTCHours() === 12) {   // 12:30 UTC = 한국시간 21:30 사전 알림
     if (!ALERT.PRE_ALERT) return;
-    const p = await buildPayload();
+    const p = await buildPayloadRetry();
     const end = p.session && p.session.end ? etNow(p.session.end * 1000).date : null;
     if (end && end !== now.date) return;                   // 오늘 미국 휴장
     const msg = preMessage(p);
@@ -712,7 +735,7 @@ async function handleScheduled(event, env) {
   }
   // 확정 알림: 16:20 ET (서머타임·겨울 두 개의 cron 중 동부시간 16시대에 맞는 것만 실행)
   if (now.min < 16 * 60 + 5 || now.min >= 17 * 60) return;
-  const p = await buildPayload();
+  const p = await buildPayloadRetry();
   if (p.provisional || p.lastDate !== now.date) return;   // 휴장일이거나 아직 종가 미확정
   const msg = postMessage(p);
   if (msg) await sendTelegram(env, msg);
