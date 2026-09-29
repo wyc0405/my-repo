@@ -1,6 +1,6 @@
 // ============================================================
 // 200슨피단 전략 시그널 Worker  (Cloudflare Workers + 정적 파일)
-//   GET /api/signal  → 전략 시그널 JSON
+//   GET /api/signal  → 전략 시그널 JSON (+ ext: 장외 시세 — 화면 참고용, 신호 계산에는 쓰지 않음)
 //   그 외 경로         → public/ 폴더의 정적 파일 (index.html)
 //   예약 실행(cron)    → 텔레그램 알림 (매매 신호가 있을 때만)
 //       · 사전 알림: 한국시간 21:30 (평일) — 오늘 밤 미국장에서 신호가 날 수 있으면 알림
@@ -34,7 +34,8 @@ const TRADE_TYPES = ["BUY", "TS", "TP", "REBAL", "EXIT"];
 
 // 이동평균 기간에 따라 바뀌는 이름 (예: 200 → "200일선", "200슨피단")
 const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
-const strategyName = (P = PARAMS) => `TQQQ_SPX`;
+//const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
+const strategyName = (P = PARAMS) => `SPX_TQQQ`;
 
 const PARAMS = {
   UP_BAND: 0.045,            // 상단 밴드 (이동평균선 +2.5%)
@@ -506,8 +507,87 @@ function makePayload(dates, spx, tqqq, meta, P = PARAMS) {
 // ------------------------------------------------------------
 // 4) HTTP 핸들러
 // ------------------------------------------------------------
+// 장외 시세 (참고용) — TQQQ·SPYM 프리/애프터마켓, S&P 500 선물(ES)로 본 예상 SPX
+//   ※ 화면 표시만 한다. 신호·자동매매는 정규장 종가 기준 그대로 (payload 의 다른 값은 바꾸지 않음)
+// ------------------------------------------------------------
+async function fetchChartRaw(symbol, range, interval, prePost) {
+  let lastErr;
+  for (const host of YAHOO_HOSTS) {
+    try {
+      const url = `https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=${interval}` +
+        (prePost ? "&includePrePost=true" : "");
+      const res = await fetch(url, { headers: FETCH_HEADERS });
+      if (!res.ok) throw new Error(`${symbol} 장외 시세 요청 실패 (HTTP ${res.status})`);
+      return (await res.json()).chart.result[0];
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+// [from, to) 구간의 마지막 봉 { t, px }
+function lastBar(r, from, to) {
+  const ts = (r && r.timestamp) || [];
+  const cl = (r && r.indicators && r.indicators.quote && r.indicators.quote[0] && r.indicators.quote[0].close) || [];
+  for (let i = ts.length - 1; i >= 0; i--) if (ts[i] >= from && ts[i] < to && cl[i] > 0) return { t: ts[i], px: cl[i] };
+  return null;
+}
+
+// 요청을 먼저 보내 두고(병렬), 결과는 나중에 makeExt 에서 씀. 실패하면 null
+//   2일치를 받음: 프리마켓 시작 직후 야후의 '1일'이 아직 전날이어도 오늘 장전 거래가 들어오도록
+function fetchExtRaw() {
+  const safe = (p) => p.catch(() => null);
+  return Promise.all([
+    safe(fetchChartRaw("TQQQ", "2d", "5m", true)),
+    safe(fetchChartRaw("SPYM", "2d", "5m", true)),
+    safe(fetchChartRaw("ES=F", "5d", "15m", false))
+  ]);
+}
+
+// 지금이 프리마켓/정규장/애프터마켓/그 외 중 어디인지 — 시계(미국 동부) 기준.
+// 오늘 정규장 시간은 야후가 알려 준 값이 오늘 것일 때만 씀 (조기 폐장 13:00 반영), 아니면 09:30~16:00
+function extPhase(nowSec, per) {
+  const et = etNow(nowSec * 1000);                       // { date, min }
+  const wd = new Date(et.date + "T12:00:00Z").getUTCDay();
+  const minStart = Math.floor(nowSec / 60) * 60 - et.min * 60;   // 오늘 00:00 ET (분 단위)
+  const reg = per && per.regular && etDate(per.regular.start) === et.date ? per.regular : null;
+  const rs = reg ? reg.start : minStart + 570 * 60, re = reg ? reg.end : minStart + 960 * 60;
+  const win = { pre: [minStart + 240 * 60, rs], regular: [rs, re], post: [re, re + 240 * 60] };
+  if (wd === 0 || wd === 6) return { phase: "closed", win };
+  for (const k of ["pre", "regular", "post"]) if (nowSec >= win[k][0] && nowSec < win[k][1]) return { phase: k, win };
+  return { phase: "closed", win };
+}
+
+function makeExt(raw, spxLast, spxTime, up, dn) {
+  if (!raw) return null;
+  const [tq, sp, es] = raw;
+  const nowSec = Date.now() / 1000;
+  const { phase, win } = extPhase(nowSec, tq && tq.meta && tq.meta.currentTradingPeriod);
+  const stock = (r) => {
+    if (!r || !(r.meta && r.meta.regularMarketPrice > 0)) return null;
+    const close = r.meta.regularMarketPrice, out = { close: r2(close), px: null, chg: null, t: null };
+    const w = phase === "pre" || phase === "post" ? win[phase] : null;       // 지금 열려 있는 장외 시간
+    const b = w ? lastBar(r, w[0], nowSec + 60) : null;
+    if (b) { out.px = r2(b.px); out.chg = r2((b.px / close - 1) * 100); out.t = b.t; }
+    return out;
+  };
+  let fut = null;
+  if (es && es.meta && es.meta.regularMarketPrice > 0 && spxLast > 0 && spxTime > 0) {
+    const now = es.meta.regularMarketPrice;
+    const ref = lastBar(es, 0, spxTime - 14 * 60);     // SPX 마지막 종가 시각의 선물 가격 (15분봉의 끝 = 종가 시각)
+    if (ref) {
+      const est = spxLast * now / ref.px;
+      fut = { px: r2(now), chg: r2((now / ref.px - 1) * 100), t: es.meta.regularMarketTime || null,
+              estSpx: r2(est), toUpPct: r2((up / est - 1) * 100), toDnPct: r2((dn / est - 1) * 100) };
+    }
+  }
+  if (!fut && !tq && !sp) return null;
+  return { phase, time: Math.floor(nowSec), fut, tqqq: stock(tq), spym: stock(sp) };
+}
+
+// ------------------------------------------------------------
 // override : { spx, tqqq } — 마지막 거래일 종가를 이 값으로 가정한 신호 (자동매매 프로그램의 "만약" 계산용)
-async function buildPayload(override) {
+async function buildPayload(override, opts = {}) {
+  const extRaw = opts.ext ? fetchExtRaw() : null;      // 장외 시세는 따로 병렬로 (실패해도 신호에는 영향 없음)
   const [spxRaw, tqqqRaw, spymRaw] = await Promise.all([
     fetchYahoo("^GSPC"),
     fetchYahoo("TQQQ"),
@@ -543,6 +623,14 @@ async function buildPayload(override) {
   });
   payload.session = { start: spxRaw.sessionStart, end: spxRaw.sessionEnd };   // 정규장 시작·마감 (유닉스 초)
   payload.whatIf = whatIf;
+  payload.ext = null;
+  if (extRaw) {
+    try {
+      const last = spx.length - 1, sma = payload.price.sma;
+      payload.ext = makeExt(await extRaw, spx[last], spxRaw.time,
+        sma * (1 + PARAMS.UP_BAND), sma * (1 - PARAMS.DN_BAND));
+    } catch (err) { payload.ext = null; }
+  }
   return payload;
 }
 
@@ -570,7 +658,7 @@ async function handleSignal(request, ctx) {
   if (hit) return hit;
 
   try {
-    const payload = await buildPayload();
+    const payload = await buildPayload(undefined, { ext: true });   // 웹페이지용: 장외 시세 포함
     const res = new Response(JSON.stringify(payload), {
       headers: { ...JSON_HEADERS, "Cache-Control": `public, max-age=${CACHE_SECONDS}` }
     });
