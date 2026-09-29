@@ -67,6 +67,21 @@
     .price-grid .v { font-size: 13px; font-weight: 600; margin-top: 1px; }
     .price-grid .d { font-size: 10px; color: var(--p2); }
 
+    /* 장외 시세 (참고용) */
+    .ext { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--divider); }
+    .ext-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11px; color: var(--p2); margin-bottom: 6px; }
+    .ext-head b { color: var(--p1); font-weight: 600; font-size: 12px; white-space: nowrap; }
+    .ext-head span { text-align: right; }
+    .ext-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; }
+    .ext-grid .k { font-size: 10px; color: var(--p2); }
+    .ext-grid .v { font-size: 15px; font-weight: 700; margin-top: 1px; }
+    .ext-grid .d { font-size: 11px; font-weight: 600; }
+    .ext-grid .s { font-size: 10px; color: var(--p2); margin-top: 2px; }
+    .ext-est { font-size: clamp(10px, 3vw, 11px); color: var(--p2); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ext-est b { color: var(--p1); font-weight: 600; }
+    .ext-note { font-size: 10px; color: var(--p2); margin-top: 6px; }
+    .kup { color: #ff5a5a; } .kdn { color: #5b9bff; } .kflat { color: var(--p2); }   /* 한국식: 상승 빨강 · 하락 파랑 */
+
     /* 보유 입력 */
     .hold { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
     .hold-row { display: flex; align-items: flex-end; gap: 8px; }
@@ -136,6 +151,7 @@
         <div class="info-box" id="sig"></div>
       </div>
       <div class="price-grid" id="prices"></div>
+      <div class="ext" id="ext" hidden></div>
     </section>
 
     <!-- 오늘 주문 -->
@@ -349,6 +365,43 @@
       ].map(([k, v, sm]) => `<div><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="d">${esc(sm)}</div></div>`).join("");
     }
 
+    // ---------- 장외 시세 (참고용 · 신호 계산에는 쓰지 않음) ----------
+    function hm(sec) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric",
+        hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(sec * 1000)).map((x) => [x.type, x.value]));
+      return { hm: `${p.hour === "24" ? "00" : p.hour}:${p.minute}`, md: `${p.month}/${p.day}` };
+    }
+    function renderExt(d) {
+      const x = d.ext, box = $("ext");
+      if (!x || x.phase === "regular" || d.provisional) { box.hidden = true; return; }   // 정규장 중에는 위 가격이 실시간
+      const cls = (v) => v > 0.005 ? "kup" : v < -0.005 ? "kdn" : "kflat";
+      const sp = (v) => `${v > 0 ? "+" : ""}${Number(v).toFixed(2)}%`;
+      const now = x.time, f = x.fut;
+      const futStale = f && f.t && now - f.t > 30 * 60;           // 주말·휴장 등으로 선물도 멈춤
+      const anyExt = [x.tqqq, x.spym].some((q) => q && q.px !== null);   // 휴장일·거래 시작 전이면 장외 거래 없음
+      const phaseName = anyExt ? { pre: "프리마켓", post: "애프터마켓" }[x.phase] : null;
+      const when = phaseName ? `${hm(now).hm} KST · ${phaseName}`
+        : f && !futStale ? `${hm(now).hm} KST · 선물만 거래 중`
+        : f ? `선물 마지막 시세 ${hm(f.t).md} ${hm(f.t).hm} KST` : `${hm(now).hm} KST`;
+      const cells = [];
+      if (f) cells.push(`<div><div class="k">S&amp;P 500 선물</div><div class="v">${num(f.px)}</div>
+        <div class="d ${cls(f.chg)}">${sp(f.chg)}</div></div>`);
+      for (const [k, name, tk] of [["tqqq", "TQQQ", "tk-tqqq"], ["spym", "SPYM", "tk-spym"]]) {
+        const q = x[k];
+        if (!q) continue;
+        cells.push(q.px !== null
+          ? `<div><div class="k ${tk}">${name} ${x.phase === "pre" ? "프리" : "애프터"}</div><div class="v">$${q.px.toFixed(2)}</div>
+             <div class="d ${cls(q.chg)}">${sp(q.chg)}</div><div class="s">종가 $${q.close.toFixed(2)}</div></div>`
+          : `<div><div class="k ${tk}">${name}</div><div class="v">$${q.close.toFixed(2)}</div></div>`);   // 장외 거래 없음 → 종가만
+      }
+      if (!cells.length) { box.hidden = true; return; }
+      const est = f ? `<div class="ext-est">예상 SPX <b>${num(f.estSpx, 0)}</b> · 상단까지 ${sp(f.toUpPct)} · 하단까지 ${sp(f.toDnPct)}</div>` : "";
+      box.innerHTML = `<div class="ext-head"><b>장외 시세 · 참고용</b><span>${when}</span></div>
+        <div class="ext-grid">${cells.join("")}</div>${est}
+        <div class="ext-note">신호·자동매매는 정규장 종가 기준입니다 (장외 시세는 계산에 쓰지 않음)</div>`;
+      box.hidden = false;
+    }
+
     function drawBand(ch, peak) {
       const { ctx, W, H } = hd("bandChart", 500, 300);
       const all = ch.spx.concat(ch.up, ch.dn, peak ? [peak] : []).filter((v) => v !== null);
@@ -441,6 +494,7 @@
         $("prov").hidden = !d.provisional;
         $("bandChart").setAttribute("aria-label", `최근 90거래일 SPX와 ${smaName(d)}, 상하단 밴드, 사이클 고점`);
         renderSignal(d);
+        renderExt(d);
         renderEvents(d);
         renderOrders();                       // 주문 + 사이클 상태
         status.hidden = true; main.hidden = false;   // 캔버스는 화면에 보인 뒤 그려야 크기가 맞음
