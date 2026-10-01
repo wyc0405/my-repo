@@ -13,11 +13,16 @@
 //       /api/telegram-test?find=1      → 봇에게 말을 건 대화에 '채팅 ID'를 텔레그램으로 알려 줌
 //       /api/telegram-test?key=채팅ID   → 시험 알림 1통 보내기 (&mode=post 는 마감 후 형식)
 //
-// 파이썬 백테스트(Strategy_1_TQQQ_SPX_200.py)의 매매 로직을 그대로 옮겨서
-// 야후 파이낸스의 SPX(^GSPC) / TQQQ 일봉으로 전략을 처음부터 재현(시뮬레이션)하고,
+// 파이썬 백테스트(BackTest.py)의 매매 로직을 그대로 옮겨서
+// 야후 파이낸스의 SPX(^GSPC) / TQQQ / SPY 일봉으로 전략을 처음부터 재현(시뮬레이션)하고,
 // "오늘 시점의 포지션 · 분할매수 단계 · 익절/TS 기준 · 오늘의 신호"를 JSON으로 돌려줍니다.
+//   신호 = SPX, 매매 = TQQQ · SPY (SPYM 대용, 백테스트와 같음 — SPY를 못 받은 날은 SPX로 대신 계산)
 //
-// ※ 전략 파라미터는 아래 PARAMS 에서만 바꾸면 됩니다.
+// ※ 전략 파라미터는 아래 PARAMS 블록에서만 바꾸면 됩니다.
+//   웹페이지·텔레그램 알림·자동매매 프로그램(auto_trader)이 모두 이 값을 따릅니다.
+//   백테스트에서 고른 설정은 BackTest.py 의 worker_params_js(설정) 로 PARAMS 블록을 만들어
+//   아래 "PARAMS 시작" ~ "PARAMS 끝" 사이를 통째로 바꿔 넣으면 됩니다.
+//   값이 잘못되면(합이 1이 아닌 비중 등) 신호를 내지 않고 웹페이지에 오류를 보여 줍니다.
 // ============================================================
 
 const VERSION = "v1.3";
@@ -37,31 +42,69 @@ const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
 //const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
 const strategyName = (P = PARAMS) => `SPX_TQQQ`;
 
+// ==== PARAMS 시작 (이 블록을 통째로 바꿔 넣어도 됨) ====
 const PARAMS = {
-  UP_BAND: 0.045,            // 상단 밴드 (이동평균선 +2.5%)
-  DN_BAND: 0.04,             // 하단 밴드 (이동평균선 -3%)
-  TS_THRESH: 0.05,           // SPX가 사이클 고점 대비 -10% → TS 발동 (발동 후 고점 리셋 = 연쇄)
-  TS_THRESH_SELL: 0.28,       // TS 발동 시 TQQQ 보유량의 50% → SPYM
-  RB_RATE_T: 91 / 100,         // 리밸런싱 TQQQ 비중
-  RB_RATE_S: 9 / 100,         // 리밸런싱 SPYM 비중
-  FEE: 0.0007,               // 매매 수수료 0.07%
-  TAX_RATE: 0.22,            // 양도소득세 22%
-  DEDUCTION: 2500.0,         // 연간 기본공제 ($)
-  START_CAPITAL: 10000.0,    // 시뮬레이션 시작 자산 ($)
-  TP_SELL_SMALL: 0.1,        // 소익절: TQQQ 10% → SPYM
-  TP_SELL_BIG: 0.9,          // 대익절: TQQQ 50% → SPYM
-  SPLIT_BUY_RATE_T: 4 / 5,   // 분할매수 시 TQQQ 비중
-  SPLIT_BUY_RATE_S: 1 / 5,   // 분할매수 시 SPYM 비중
-  STAGE_NUM: 5,              // 분할매수 횟수
-  TP_THRESH_HOLDS: [0.10, 0.25, 0.50], // 소익절 기준 (사이클 수익률)
-  BAND_ROLLING_N: 210,       // 이동평균 기간 (일) — 바꾸면 웹페이지·텔레그램 알림의 "N일선"·"N슨피단" 표시도 함께 바뀜
-  CASH_APR: 0.035            // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
+  UP_BAND: 0.045,                    // 상단 밴드 (이동평균선 +4.5%)
+  DN_BAND: 0.04,                     // 하단 밴드 (이동평균선 -4%)
+  TS_THRESH: 0.05,                   // SPX가 사이클 고점 대비 -5% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  TS_THRESH_SELL: 0.26,              // TS 발동 시 TQQQ 보유량의 26% → SPYM
+  RB_RATE_T: 0.9,                    // 리밸런싱 TQQQ 비중
+  RB_RATE_S: 0.1,                    // 리밸런싱 SPYM 비중
+  FEE: 0.0007,                       // 매매 수수료 0.07%
+  TAX_RATE: 0.22,                    // 양도소득세 22%
+  DEDUCTION: 2500,                   // 연간 기본공제 ($)
+  START_CAPITAL: 10000,              // 시뮬레이션 시작 자산 ($)
+  TP_SELL_SMALL: 0.15,               // 소익절: TQQQ 15% → SPYM
+  TP_SELL_BIG: 0.9,                  // 대익절: TQQQ 90% → SPYM
+  SPLIT_BUY_RATE_T: 0.8,             // 분할매수 시 TQQQ 비중
+  SPLIT_BUY_RATE_S: 0.2,             // 분할매수 시 SPYM 비중
+  STAGE_NUM: 5,                      // 분할매수 횟수
+  TP_THRESH_HOLDS: [0.3, 0.4],       // 소익절 기준 (사이클 수익률) — +30% / +40%
+  BAND_ROLLING_N: 210,               // 이동평균 기간 (일)
+  CASH_APR: 0.035                    // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
+// ==== PARAMS 끝 ====
+
+// 파라미터 점검 (잘못된 값이면 신호를 내지 않고 오류 문구를 보여 줌)
+//   소익절 기준은 작은 값부터 정렬해서 사용
+function checkParams(P) {
+  const errs = [];
+  const need = ["UP_BAND", "DN_BAND", "TS_THRESH", "TS_THRESH_SELL", "RB_RATE_T", "RB_RATE_S", "FEE", "TAX_RATE",
+    "DEDUCTION", "START_CAPITAL", "TP_SELL_SMALL", "TP_SELL_BIG", "SPLIT_BUY_RATE_T", "SPLIT_BUY_RATE_S",
+    "STAGE_NUM", "BAND_ROLLING_N", "CASH_APR"];
+  for (const k of need) if (!Number.isFinite(P[k])) errs.push(`${k} 값이 숫자가 아닙니다`);
+  const in01 = (k, open) => {
+    if (Number.isFinite(P[k]) && !(open ? P[k] > 0 && P[k] < 1 : P[k] >= 0 && P[k] <= 1))
+      errs.push(`${k}=${P[k]} 은(는) ${open ? "0보다 크고 1보다 작아야" : "0~1 사이여야"} 합니다`);
+  };
+  ["UP_BAND", "DN_BAND", "TS_THRESH"].forEach((k) => in01(k, true));
+  ["TS_THRESH_SELL", "TP_SELL_SMALL", "TP_SELL_BIG", "RB_RATE_T", "RB_RATE_S", "SPLIT_BUY_RATE_T", "SPLIT_BUY_RATE_S"]
+    .forEach((k) => in01(k, false));
+  if (!(Number.isInteger(P.STAGE_NUM) && P.STAGE_NUM >= 1)) errs.push(`STAGE_NUM=${P.STAGE_NUM} 은(는) 1 이상의 정수여야 합니다`);
+  if (!(Number.isInteger(P.BAND_ROLLING_N) && P.BAND_ROLLING_N >= 2 && P.BAND_ROLLING_N <= 600))
+    errs.push(`BAND_ROLLING_N=${P.BAND_ROLLING_N} 은(는) 2~600 사이의 정수여야 합니다 (과거 데이터 ${RANGE} 안에서 계산)`);
+  if (Math.abs(P.SPLIT_BUY_RATE_T + P.SPLIT_BUY_RATE_S - 1) > 1e-6)
+    errs.push(`SPLIT_BUY_RATE_T + SPLIT_BUY_RATE_S = ${P.SPLIT_BUY_RATE_T + P.SPLIT_BUY_RATE_S} (합이 1이어야 합니다)`);
+  if (Math.abs(P.RB_RATE_T + P.RB_RATE_S - 1) > 1e-6)
+    errs.push(`RB_RATE_T + RB_RATE_S = ${P.RB_RATE_T + P.RB_RATE_S} (합이 1이어야 합니다)`);
+  const th = P.TP_THRESH_HOLDS;
+  if (!Array.isArray(th)) errs.push("TP_THRESH_HOLDS 는 [0.1, 0.25, 0.5] 같은 배열이어야 합니다");
+  else {
+    if (th.some((v) => !(Number.isFinite(v) && v > 0))) errs.push(`TP_THRESH_HOLDS 값은 0보다 큰 숫자여야 합니다: [${th}]`);
+    else if (new Set(th).size !== th.length) errs.push(`TP_THRESH_HOLDS 에 같은 값이 두 번 있습니다: [${th}]`);
+    else P.TP_THRESH_HOLDS = [...th].sort((a, b) => a - b);
+  }
+  return errs.length ? errs.join(" / ") : null;
+}
 
 const RANGE = "5y";          // 시뮬레이션에 쓰는 과거 데이터 기간
+const PARAM_ERROR = checkParams(PARAMS);
 const CACHE_SECONDS = 60;    // 야후 호출 보호용 캐시
 const SETTLE_MIN_SEC = 5 * 60;   // 장 마감 후 최소 이만큼은 '잠정'으로 둠 (공식 종가 반영 대기)
 const SETTLE_MAX_SEC = 15 * 60;  // 시세 시각이 마감 전에 머물러 있어도 이 시간이 지나면 종가로 확정
+
+// 비율 → % 숫자 문구 (0.1 → "10", 0.125 → "12.5")
+const pctNum = (v) => String(Math.round(v * 10000) / 100);
 
 const YAHOO_HOSTS = ["query2.finance.yahoo.com", "query1.finance.yahoo.com"];
 const FETCH_HEADERS = {
@@ -146,7 +189,8 @@ function getSMA(data, p) {
   return ma;
 }
 
-function simulate(dates, spx, tqqq, P) {
+// spx: 신호용 SPX, tqqq: TQQQ, spy: SPYM 대용 가격 (SPY, 없으면 SPX)
+function simulate(dates, spx, tqqq, spy, P) {
   const N = dates.length;
   const sma = getSMA(spx, P.BAND_ROLLING_N);
   const start = sma.findIndex((v) => v !== null);
@@ -182,7 +226,7 @@ function simulate(dates, spx, tqqq, P) {
     const gap = i === 0 ? 1 : (dayMs[i] - dayMs[i - 1]) / 86400000;
     cash *= Math.pow(1 + P.CASH_APR / 365, gap);
 
-    const cT = tqqq[i], cS = spx[i], cSig = spx[i];  // SPYM 대용 = SPX (파이썬과 동일)
+    const cT = tqqq[i], cS = spy[i], cSig = spx[i];  // SPYM 대용 = SPY (파이썬과 동일)
     const smaNow = sma[i];
     const bUp = smaNow * (1 + P.UP_BAND);
     const bDown = smaNow * (1 - P.DN_BAND);
@@ -258,11 +302,11 @@ function simulate(dates, spx, tqqq, P) {
         if (qty > 0) {
           moveTtoS(qty);
           totalTs++;
-          acts.push({ type: "TS", frac: P.TS_THRESH_SELL, text: `TS 발동 (SPX 고점 대비 -${(P.TS_THRESH * 100).toFixed(0)}%) · TQQQ ${(P.TS_THRESH_SELL * 100).toFixed(0)}% → SPYM` });
+          acts.push({ type: "TS", frac: P.TS_THRESH_SELL, text: `TS 발동 (SPX 고점 대비 -${pctNum(P.TS_THRESH)}%) · TQQQ ${pctNum(P.TS_THRESH_SELL)}% → SPYM` });
         }
       } else if (i > start && cSig < bUp && spx[i - 1] >= sma[i - 1] * (1 + P.UP_BAND) && !rebalanced) {
-        // 상승장에서 밴드 안으로 처음 재진입 → 1회 리밸런싱
-        const totalEqNow = cash + sharesT * cT + sharesS * cS;
+        // 상승장에서 밴드 안으로 처음 재진입 → 1회 리밸런싱 (비중 기준: 현금 제외, TQQQ + SPYM)
+        const totalEqNow = sharesT * cT + sharesS * cS;
         const qty = (sharesT * cT - totalEqNow * P.RB_RATE_T) / cT;
         if (qty > 0) {
           moveTtoS(qty);
@@ -276,7 +320,7 @@ function simulate(dates, spx, tqqq, P) {
           sharesT += proceeds * (1 - FEE) / cT; costT += proceeds;
         }
         rebalanced = true;
-        acts.push({ type: "REBAL", text: `리밸런싱 (TQQQ ${(P.RB_RATE_T * 100).toFixed(0)}% / SPYM ${(P.RB_RATE_S * 100).toFixed(0)}%)` });
+        acts.push({ type: "REBAL", text: `리밸런싱 (TQQQ ${pctNum(P.RB_RATE_T)}% / SPYM ${pctNum(P.RB_RATE_S)}%)` });
       }
 
       // 소익절 / 대익절
@@ -290,7 +334,7 @@ function simulate(dates, spx, tqqq, P) {
             if (qty > 0) {
               moveTtoS(qty);
               tpFlags[k] = true;
-              acts.push({ type: "TP", frac: P.TP_SELL_SMALL, text: `소익절 (+${Math.round(th * 100)}% 달성) · TQQQ ${(P.TP_SELL_SMALL * 100).toFixed(0)}% → SPYM` });
+              acts.push({ type: "TP", frac: P.TP_SELL_SMALL, text: `소익절 (+${pctNum(th)}% 달성) · TQQQ ${pctNum(P.TP_SELL_SMALL)}% → SPYM` });
             }
           }
         });
@@ -303,7 +347,7 @@ function simulate(dates, spx, tqqq, P) {
               const qty = sharesT * P.TP_SELL_BIG;
               if (qty > 0) {
                 moveTtoS(qty);
-                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성) · TQQQ ${(P.TP_SELL_BIG * 100).toFixed(0)}% → SPYM` });
+                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성) · TQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
               }
             }
             bigTpStage = highest;
@@ -375,7 +419,7 @@ function simulate(dates, spx, tqqq, P) {
     state: {
       cash, sharesT, sharesS, buyStage, localPeak, tpFlags, bigTpStage,
       cycleStartEq, rebalanced, totalEq: lastEq, totalTrades, totalTs,
-      valT: sharesT * tqqq[last], valS: sharesS * spx[last]
+      valT: sharesT * tqqq[last], valS: sharesS * spy[last]
     },
     sma
   };
@@ -406,7 +450,7 @@ function buildSignal(sim, P, price) {
     if (has("TS")) {
       tone = "alert";
       headline = "긴급대피 발동 (TS)";
-      lines.push(["TQQQ", `${(P.TS_THRESH_SELL * 100).toFixed(0)}% 매도`], ["SPYM", "전환"]);
+      lines.push(["TQQQ", `${pctNum(P.TS_THRESH_SELL)}% 매도`], ["SPYM", "전환"]);
     }
     if (buy) {
       tone = tone === "alert" ? tone : "buy";
@@ -415,7 +459,7 @@ function buildSignal(sim, P, price) {
     }
     if (has("REBAL")) {
       if (!headline) headline = "리밸런싱";
-      lines.push(["TQQQ·SPYM", `${(P.RB_RATE_T * 10).toFixed(0)}:${(P.RB_RATE_S * 10).toFixed(0)} 리밸런싱`]);
+      lines.push(["TQQQ·SPYM", `${pctNum(P.RB_RATE_T)}:${pctNum(P.RB_RATE_S)} 리밸런싱`]);
     }
     if (has("TP")) {
       if (!headline) headline = "익절 발동";
@@ -429,9 +473,9 @@ function buildSignal(sim, P, price) {
   return { headline, tone, lines, todayActs: acts };
 }
 
-function makePayload(dates, spx, tqqq, meta, P = PARAMS) {
+function makePayload(dates, spx, tqqq, spy, meta, P = PARAMS) {
   const N = dates.length;
-  const sim = simulate(dates, spx, tqqq, P);
+  const sim = simulate(dates, spx, tqqq, spy, P);
   const s = sim.state;
   const last = N - 1;
   const smaNow = sim.sma[last];
@@ -494,7 +538,9 @@ function makePayload(dates, spx, tqqq, meta, P = PARAMS) {
       smaN: P.BAND_ROLLING_N, smaLabel: smaLabel(P), name: strategyName(P),
       upBand: P.UP_BAND, dnBand: P.DN_BAND, ts: P.TS_THRESH, tsSell: P.TS_THRESH_SELL,
       stages: P.STAGE_NUM, splitT: P.SPLIT_BUY_RATE_T, splitS: P.SPLIT_BUY_RATE_S,
-      rbT: P.RB_RATE_T, rbS: P.RB_RATE_S, tpSmall: P.TP_SELL_SMALL, tpBig: P.TP_SELL_BIG
+      rbT: P.RB_RATE_T, rbS: P.RB_RATE_S, tpSmall: P.TP_SELL_SMALL, tpBig: P.TP_SELL_BIG,
+      tpThresholds: P.TP_THRESH_HOLDS,
+      spymProxy: meta.spymProxy || "SPY"   // 시뮬레이션의 SPYM 대용 가격 (SPY, 못 받으면 SPX)
     },
     price: { ...price, spym: meta.spym === undefined ? null : meta.spym },
     state,
@@ -586,23 +632,37 @@ function makeExt(raw, spxLast, spxTime, up, dn) {
 
 // ------------------------------------------------------------
 // override : { spx, tqqq } — 마지막 거래일 종가를 이 값으로 가정한 신호 (자동매매 프로그램의 "만약" 계산용)
+//   (SPY 는 SPX 와 같은 비율로 움직였다고 가정)
 async function buildPayload(override, opts = {}) {
+  if (PARAM_ERROR) throw new Error(`전략 파라미터 오류 (worker.js 의 PARAMS 확인): ${PARAM_ERROR}`);
   const extRaw = opts.ext ? fetchExtRaw() : null;      // 장외 시세는 따로 병렬로 (실패해도 신호에는 영향 없음)
-  const [spxRaw, tqqqRaw, spymRaw] = await Promise.all([
+  const [spxRaw, tqqqRaw, spyRaw, spymRaw] = await Promise.all([
     fetchYahoo("^GSPC"),
     fetchYahoo("TQQQ"),
+    // 시뮬레이션의 SPYM 대용 가격 (실패하면 SPX 로 대신 계산 — 비율만 쓰므로 결과는 거의 같음)
+    fetchYahoo("SPY").catch(() => null),
     // 실제 주문 수량 계산용 SPYM 현재가 (실패해도 신호는 정상 표시)
     fetchYahoo("SPYM", "5d").catch(() => null)
   ]);
   const tMap = new Map(tqqqRaw.dates.map((d, i) => [d, tqqqRaw.closes[i]]));
-  const dates = [], spx = [], tqqq = [];
+  const sMap = spyRaw ? new Map(spyRaw.dates.map((d, i) => [d, spyRaw.closes[i]])) : null;
+  const dates = [], spx = [], tqqq = [], spy = [];
+  let spyOk = !!sMap;
   spxRaw.dates.forEach((d, i) => {
-    if (tMap.has(d)) { dates.push(d); spx.push(spxRaw.closes[i]); tqqq.push(tMap.get(d)); }
+    if (tMap.has(d)) {
+      dates.push(d); spx.push(spxRaw.closes[i]); tqqq.push(tMap.get(d));
+      if (spyOk && sMap.has(d)) spy.push(sMap.get(d)); else spyOk = false;
+    }
   });
+  // SPY 가 하루라도 빠지면 (단위가 다른 SPX 와 섞이지 않도록) 전체를 SPX 로 계산
+  const spyUsed = spyOk ? spy : spx.slice();
   let whatIf = null;
   if (override && dates.length) {
     const last = dates.length - 1;
-    if (Number.isFinite(override.spx) && override.spx > 0) spx[last] = override.spx;
+    if (Number.isFinite(override.spx) && override.spx > 0) {
+      spyUsed[last] *= override.spx / spx[last];     // SPY 도 SPX 와 같은 비율로
+      spx[last] = override.spx;
+    }
     if (Number.isFinite(override.tqqq) && override.tqqq > 0) tqqq[last] = override.tqqq;
     whatIf = { spx: spx[last], tqqq: tqqq[last] };
   }
@@ -616,10 +676,11 @@ async function buildPayload(override, opts = {}) {
   const quotesAfterClose = Math.min(spxRaw.time, tqqqRaw.time) >= S.sessionEnd;
   const settling = todayLive && nowSec >= S.sessionEnd
     && (nowSec < S.sessionEnd + SETTLE_MIN_SEC || (!quotesAfterClose && nowSec < S.sessionEnd + SETTLE_MAX_SEC));
-  const payload = makePayload(dates, spx, tqqq, {
+  const payload = makePayload(dates, spx, tqqq, spyUsed, {
     time: Math.max(spxRaw.time, tqqqRaw.time),
     isOpen: inSession || settling,
-    spym
+    spym,
+    spymProxy: spyOk ? "SPY" : "SPX"
   });
   payload.session = { start: spxRaw.sessionStart, end: spxRaw.sessionEnd };   // 정규장 시작·마감 (유닉스 초)
   payload.whatIf = whatIf;
@@ -704,7 +765,7 @@ function preAlertReasons(p, X) {
     // 사이클 수익률(R)은 자산이 SPX의 약 3배로 움직이므로 (1+R)×3×X %p 정도까지 움직일 수 있음
     const near = [s.tp.nextSmall, s.tp.nextBig].filter((t) => t !== null && t !== undefined && t > s.cycleRet
       && (t - s.cycleRet) * 100 <= X * 3 * (1 + s.cycleRet));
-    if (near.length) out.push(`익절(TP): 사이클 수익률 ${(s.cycleRet * 100).toFixed(1)}% → 기준 ${(Math.min(...near) * 100).toFixed(0)}%`);
+    if (near.length) out.push(`익절(TP): 사이클 수익률 ${(s.cycleRet * 100).toFixed(1)}% → 기준 ${pctNum(Math.min(...near))}%`);
   }
   return out;
 }
@@ -715,7 +776,7 @@ function tradeActs(p) {
 
 // ---- 텔레그램 API ----
 // 값을 붙여 넣을 때 딸려 들어가기 쉬운 공백·줄바꿈·따옴표·< > 를 떼어 냄
-const JUNK = /[\s"'`<>\u200B]/g;
+const JUNK = /[\s"'`<>​]/g;
 const cleanChatId = (v) => String(v == null ? "" : v).replace(JUNK, "");
 function cleanToken(v) {
   const t = String(v == null ? "" : v).replace(JUNK, "");
