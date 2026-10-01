@@ -116,6 +116,19 @@
     .dots i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--dot); display: block; }
     .dots i.on { background: var(--cp); border-color: var(--cp); }
 
+    /* 소익절 단계 (달성한 단계는 채움) */
+    .steps { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+    .steps span { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--dot); color: var(--p2); }
+    .steps span.done { background: var(--lowerBand); border-color: var(--lowerBand); color: #000; }
+    .steps span.next { border-color: var(--lowerBand); color: var(--lowerBand); }
+
+    /* 전략 설정 (worker.js 의 PARAMS) */
+    details.cfg summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    details.cfg summary::-webkit-details-marker { display: none; }
+    details.cfg summary .version::after { content: " ▾"; }
+    details.cfg[open] summary .version::after { content: " ▴"; }
+    details.cfg summary:focus-visible { outline: 2px solid var(--cp); outline-offset: 4px; border-radius: 6px; }
+
     .ev { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--divider); font-size: 13px; }
     .ev:first-of-type { border-top: 0; }
     .ev-date { color: var(--p2); font-size: 12px; width: 60px; flex-shrink: 0; padding-top: 1px; }
@@ -192,6 +205,15 @@
       <div id="events" style="margin-top:6px"></div>
     </section>
 
+    <!-- 전략 설정 (지금 신호 계산에 쓰는 값) -->
+    <section class="card">
+      <details class="cfg">
+        <summary><h2 class="title">전략 설정</h2><span class="version" id="cfg-ver">지금 적용 중인 값</span></summary>
+        <div class="rows" id="cfg" style="margin-top:8px"></div>
+        <p class="note">worker.js 의 PARAMS 값입니다. 바꾼 뒤 배포하면 웹페이지·텔레그램 알림·자동매매가 함께 바뀝니다.</p>
+      </details>
+    </section>
+
     <button class="btn" id="btn-refresh">새로고침</button>
     <p class="note" style="text-align:center;margin-top:0">초심을 잃지말자.</p>
   </main>
@@ -211,6 +233,8 @@
     const num = (v, d = 2) => Number(v).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
     const pct = (v, d = 1) => (v > 0 ? "+" : "") + Number(v).toFixed(d) + "%";
     const pct0 = (v, d = 1) => (Number(v) * 100 > 0 ? "+" : "") + (Number(v) * 100).toFixed(d) + "%";
+    // 비율 → % (필요한 만큼만 소수: 0.1 → "10%", 0.125 → "12.5%")
+    const pctS = (v) => String(Math.round(Number(v) * 10000) / 100) + "%";
 
     function kst(sec) {
       const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
@@ -360,8 +384,8 @@
       $("prices").innerHTML = [
         ["SPX", num(p.spx), ""],
         [smaName(d), num(p.sma), ""],
-        [`상단 +${(d.params.upBand * 100).toFixed(1)}%`, num(p.upBand), pct(p.toUpPct)],
-        [`하단 -${(d.params.dnBand * 100).toFixed(1)}%`, num(p.dnBand), pct(p.toDnPct)]
+        [`상단 +${pctS(d.params.upBand)}`, num(p.upBand), pct(p.toUpPct)],
+        [`하단 -${pctS(d.params.dnBand)}`, num(p.dnBand), pct(p.toDnPct)]
       ].map(([k, v, sm]) => `<div><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="d">${esc(sm)}</div></div>`).join("");
     }
 
@@ -433,6 +457,14 @@
     // ---------- 사이클 상태 ----------
     const row = (k, v, small) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${v}${small ? `<small>${small}</small>` : ""}</span></div>`;
 
+    // 소익절 단계 표시: 달성 = 채움, 다음 단계 = 테두리 강조
+    function tpSteps(tp) {
+      if (!tp.small.length) return "소익절 없음";
+      const next = tp.small.findIndex((x) => !x.done);
+      return `<span class="steps">${tp.small.map((x, i) =>
+        `<span class="${x.done ? "done" : i === next ? "next" : ""}">+${esc(pctS(x.th))}</span>`).join("")}</span>`;
+    }
+
     function renderState(d) {
       const st = d.state, p = d.price, out = [];
       const zoneTxt = { ABOVE: "밴드 위", IN_BAND: "밴드 안", BELOW: "밴드 아래" }[p.zone];
@@ -446,7 +478,7 @@
         let small = "매수 완료";
         if (st.buy.filled < st.buy.total) {
           const k = st.buy.filled + 1, P = d.params;
-          small = `다음 거래일 ${k}차 · 회당 TQQQ ${(P.splitT * 100).toFixed(0)}% / SPYM ${(P.splitS * 100).toFixed(0)}%`;
+          small = `다음 거래일 ${k}차 · 회당 TQQQ ${pctS(P.splitT)} / SPYM ${pctS(P.splitS)}`;
           const h0 = readHold();
           if (d.price.spym && (h0.t > 0 || h0.s > 0 || h0.c > 0)) {
             const h1 = applyActs(d, h0);
@@ -458,10 +490,28 @@
         out.push(row("분할매수", `<span class="dots">${dots}</span>${st.buy.filled}/${st.buy.total}`, small));
         if (st.cycleRet !== null) out.push(row("사이클 수익률", pct0(st.cycleRet)));
         if (st.ts) out.push(row("TS 발동선", `SPX ${num(st.ts.trigger)}`, `고점 ${num(st.ts.peak)} 대비 ${pct(st.ts.fromPeakPct)} · 발동까지 ${pct(st.ts.toTriggerPct)}`));
-        out.push(row("다음 익절", st.tp.nextSmall === null ? "소익절 모두 완료" : `소익절 다음 ${pct0(st.tp.nextSmall, 0)}`, `대익절 다음 ${pct0(st.tp.nextBig, 0)}`));
-        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때 ${(d.params.rbT * 10).toFixed(0)}:${(d.params.rbS * 10).toFixed(0)}로 1회`));
+        out.push(row("다음 익절", st.tp.nextSmall === null ? "소익절 모두 완료" : `소익절 다음 +${pctS(st.tp.nextSmall)}`, `대익절 다음 +${pctS(st.tp.nextBig)}`));
+        out.push(row("소익절 단계", tpSteps(st.tp), `달성할 때마다 TQQQ ${pctS(d.params.tpSmall)} → SPYM`));
+        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때 TQQQ ${pctS(d.params.rbT)} / SPYM ${pctS(d.params.rbS)}로 1회`));
       }
       $("state").innerHTML = out.join("");
+    }
+
+    // ---------- 전략 설정 (worker.js 의 PARAMS — 바꾼 값이 제대로 배포됐는지 확인용) ----------
+    function renderConfig(d) {
+      const P = d.params, out = [];
+      const tps = Array.isArray(P.tpThresholds) ? P.tpThresholds : (d.state.tp ? d.state.tp.small.map((x) => x.th) : null);
+      out.push(row("이동평균", esc(smaName(d)), `밴드 상단 +${pctS(P.upBand)} · 하단 -${pctS(P.dnBand)}`));
+      out.push(row("분할매수", `${P.stages}회`, `회당 TQQQ ${pctS(P.splitT)} / SPYM ${pctS(P.splitS)}`));
+      out.push(row("TS", `SPX 고점 대비 -${pctS(P.ts)}`, `발동마다 TQQQ ${pctS(P.tsSell)} → SPYM`));
+      out.push(row("소익절", tps ? (tps.length ? tps.map((t) => "+" + pctS(t)).join(" · ") : "없음") : "-",
+        `${tps ? tps.length + "단계 · " : ""}단계마다 TQQQ ${pctS(P.tpSmall)} → SPYM`));
+      out.push(row("대익절", "+100% · +200% · +400% …", `단계마다 TQQQ ${pctS(P.tpBig)} → SPYM`));
+      out.push(row("리밸런싱", `TQQQ ${pctS(P.rbT)} / SPYM ${pctS(P.rbS)}`, "상단 밴드 아래로 처음 내려올 때 1회"));
+      if (P.spymProxy) out.push(row("계산 기준", `신호 SPX · SPYM 대용 ${esc(P.spymProxy)}`,
+        P.spymProxy === "SPY" ? "" : "SPY 시세를 받지 못해 SPX로 대신 계산"));
+      $("cfg").innerHTML = out.join("");
+      $("cfg-ver").textContent = `${P.name || ""} · ${d.version}`;
     }
 
     function renderEvents(d) {
@@ -496,6 +546,7 @@
         renderSignal(d);
         renderExt(d);
         renderEvents(d);
+        renderConfig(d);
         renderOrders();                       // 주문 + 사이클 상태
         status.hidden = true; main.hidden = false;   // 캔버스는 화면에 보인 뒤 그려야 크기가 맞음
         drawBand(d.chart, d.state.ts ? d.state.ts.peak : null);
