@@ -42,25 +42,24 @@ const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
 //const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
 const strategyName = (P = PARAMS) => `SPX_TQQQ`;
 
-// ==== PARAMS 시작 (이 블록을 통째로 바꿔 넣어도 됨) ====
 const PARAMS = {
   UP_BAND: 0.0425,                   // 상단 밴드 (이동평균선 +4.25%)
   DN_BAND: 0.035,                    // 하단 밴드 (이동평균선 -3.5%)
-  TS_THRESH: 0.11,                   // SPX가 사이클 고점 대비 -11% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  TS_THRESH: 0.115,                  // SPX가 사이클 고점 대비 -11.5% → TS 발동 (발동 후 고점 리셋 = 연쇄)
   TS_THRESH_SELL: 1,                 // TS 발동 시 TQQQ 보유량의 100% → SPYM
-  RB_RATE_T: 0.8,                    // 리밸런싱 TQQQ 비중
-  RB_RATE_S: 0.2,                    // 리밸런싱 SPYM 비중
+  RB_RATE_T: 0.87,                   // 리밸런싱 TQQQ 비중
+  RB_RATE_S: 0.13,                   // 리밸런싱 SPYM 비중
   FEE: 0.0007,                       // 매매 수수료 0.07%
   TAX_RATE: 0.22,                    // 양도소득세 22%
   DEDUCTION: 2500,                   // 연간 기본공제 ($)
   START_CAPITAL: 10000,              // 시뮬레이션 시작 자산 ($)
-  TP_SELL_SMALL: [0.01, 0.56, 0.8],  // 소익절 단계별 TQQQ 매도 비율 — +15%: 1% / +37.5%: 56% / +93.75%: 80%
-  TP_SELL_BIG: 0.22,                 // 대익절: TQQQ 22% → SPYM
-  SPLIT_BUY_RATE_T: 0.9166666667,    // 분할매수 시 TQQQ 비중
-  SPLIT_BUY_RATE_S: 0.08333333333,   // 분할매수 시 SPYM 비중
-  STAGE_NUM: 12,                     // 분할매수 횟수
-  TP_THRESH_HOLDS: [0.15, 0.375, 0.9375], // 소익절 기준 (사이클 수익률) — +15% / +37.5% / +93.75%
-  BAND_ROLLING_N: 225,               // 이동평균 기간 (일)
+  TP_SELL_SMALL: [0.89, 0.99],       // 소익절 단계별 TQQQ 매도 비율 — +75%: 89% / +92.5%: 99%
+  TP_SELL_BIG: 0.26,                 // 대익절: TQQQ 26% → SPYM
+  SPLIT_BUY_RATE_T: 5/6,    // 분할매수 시 TQQQ 비중
+  SPLIT_BUY_RATE_S: 1/6,    // 분할매수 시 SPYM 비중
+  STAGE_NUM: 6,                      // 분할매수 횟수
+  TP_THRESH_HOLDS: [0.75, 0.925],    // 소익절 기준 (사이클 수익률) — +75% / +92.5%
+  BAND_ROLLING_N: 224,               // 이동평균 기간 (일)
   CASH_APR: 0.035                    // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 // ==== PARAMS 끝 ====
