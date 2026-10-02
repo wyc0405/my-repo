@@ -318,7 +318,7 @@ function simulate(dates, spx, tqqq, spy, P) {
         if (qty > 0) {
           moveTtoS(qty);
           totalTs++;
-          acts.push({ type: "TS", frac: P.TS_THRESH_SELL, text: `TS 발동 (SPX 고점 대비 -${pctNum(P.TS_THRESH)}%) · TQQQ ${pctNum(P.TS_THRESH_SELL)}% → SPYM` });
+          acts.push({ type: "TS", frac: P.TS_THRESH_SELL, text: `TS 발동 (SPX 고점 대비 -${pctNum(P.TS_THRESH)}%)\nTQQQ ${pctNum(P.TS_THRESH_SELL)}% → SPYM` });
         }
       } else if (i > start && cSig < bUp && spx[i - 1] >= sma[i - 1] * (1 + P.UP_BAND) && !rebalanced) {
         // 상승장에서 밴드 안으로 처음 재진입 → 1회 리밸런싱 (비중 기준: 현금 제외, TQQQ + SPYM)
@@ -351,7 +351,7 @@ function simulate(dates, spx, tqqq, spy, P) {
             if (qty > 0) {
               moveTtoS(qty);
               tpFlags[k] = true;
-              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성) · TQQQ ${pctNum(sell)}% → SPYM` });
+              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성)\nTQQQ ${pctNum(sell)}% → SPYM` });
             }
           }
         });
@@ -364,7 +364,7 @@ function simulate(dates, spx, tqqq, spy, P) {
               const qty = sharesT * P.TP_SELL_BIG;
               if (qty > 0) {
                 moveTtoS(qty);
-                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성) · TQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
+                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성)\nTQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
               }
             }
             bigTpStage = highest;
