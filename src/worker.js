@@ -25,7 +25,7 @@
 //   값이 잘못되면(합이 1이 아닌 비중 등) 신호를 내지 않고 웹페이지에 오류를 보여 줍니다.
 // ============================================================
 
-const VERSION = "v1.3";
+const VERSION = "v1.4";
 
 // ------------------------------------------------------------
 // 텔레그램 알림 설정
@@ -44,23 +44,23 @@ const strategyName = (P = PARAMS) => `SPX_TQQQ`;
 
 // ==== PARAMS 시작 (이 블록을 통째로 바꿔 넣어도 됨) ====
 const PARAMS = {
-  UP_BAND: 0.045,                    // 상단 밴드 (이동평균선 +4.5%)
-  DN_BAND: 0.04,                     // 하단 밴드 (이동평균선 -4%)
-  TS_THRESH: 0.05,                   // SPX가 사이클 고점 대비 -5% → TS 발동 (발동 후 고점 리셋 = 연쇄)
-  TS_THRESH_SELL: 0.26,              // TS 발동 시 TQQQ 보유량의 26% → SPYM
-  RB_RATE_T: 0.9,                    // 리밸런싱 TQQQ 비중
-  RB_RATE_S: 0.1,                    // 리밸런싱 SPYM 비중
+  UP_BAND: 0.0425,                   // 상단 밴드 (이동평균선 +4.25%)
+  DN_BAND: 0.035,                    // 하단 밴드 (이동평균선 -3.5%)
+  TS_THRESH: 0.11,                   // SPX가 사이클 고점 대비 -11% → TS 발동 (발동 후 고점 리셋 = 연쇄)
+  TS_THRESH_SELL: 1,                 // TS 발동 시 TQQQ 보유량의 100% → SPYM
+  RB_RATE_T: 0.8,                    // 리밸런싱 TQQQ 비중
+  RB_RATE_S: 0.2,                    // 리밸런싱 SPYM 비중
   FEE: 0.0007,                       // 매매 수수료 0.07%
   TAX_RATE: 0.22,                    // 양도소득세 22%
   DEDUCTION: 2500,                   // 연간 기본공제 ($)
   START_CAPITAL: 10000,              // 시뮬레이션 시작 자산 ($)
-  TP_SELL_SMALL: 0.15,               // 소익절: TQQQ 15% → SPYM
-  TP_SELL_BIG: 0.9,                  // 대익절: TQQQ 90% → SPYM
-  SPLIT_BUY_RATE_T: 0.8,             // 분할매수 시 TQQQ 비중
-  SPLIT_BUY_RATE_S: 0.2,             // 분할매수 시 SPYM 비중
-  STAGE_NUM: 5,                      // 분할매수 횟수
-  TP_THRESH_HOLDS: [0.3, 0.4],       // 소익절 기준 (사이클 수익률) — +30% / +40%
-  BAND_ROLLING_N: 210,               // 이동평균 기간 (일)
+  TP_SELL_SMALL: [0.01, 0.56, 0.8],  // 소익절 단계별 TQQQ 매도 비율 — +15%: 1% / +37.5%: 56% / +93.75%: 80%
+  TP_SELL_BIG: 0.22,                 // 대익절: TQQQ 22% → SPYM
+  SPLIT_BUY_RATE_T: 0.9166666667,    // 분할매수 시 TQQQ 비중
+  SPLIT_BUY_RATE_S: 0.08333333333,   // 분할매수 시 SPYM 비중
+  STAGE_NUM: 12,                     // 분할매수 횟수
+  TP_THRESH_HOLDS: [0.15, 0.375, 0.9375], // 소익절 기준 (사이클 수익률) — +15% / +37.5% / +93.75%
+  BAND_ROLLING_N: 225,               // 이동평균 기간 (일)
   CASH_APR: 0.035                    // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 // ==== PARAMS 끝 ====
@@ -70,15 +70,18 @@ const PARAMS = {
 function checkParams(P) {
   const errs = [];
   const need = ["UP_BAND", "DN_BAND", "TS_THRESH", "TS_THRESH_SELL", "RB_RATE_T", "RB_RATE_S", "FEE", "TAX_RATE",
-    "DEDUCTION", "START_CAPITAL", "TP_SELL_SMALL", "TP_SELL_BIG", "SPLIT_BUY_RATE_T", "SPLIT_BUY_RATE_S",
+    "DEDUCTION", "START_CAPITAL", "TP_SELL_BIG", "SPLIT_BUY_RATE_T", "SPLIT_BUY_RATE_S",
     "STAGE_NUM", "BAND_ROLLING_N", "CASH_APR"];
   for (const k of need) if (!Number.isFinite(P[k])) errs.push(`${k} 값이 숫자가 아닙니다`);
   const in01 = (k, open) => {
     if (Number.isFinite(P[k]) && !(open ? P[k] > 0 && P[k] < 1 : P[k] >= 0 && P[k] <= 1))
       errs.push(`${k}=${P[k]} 은(는) ${open ? "0보다 크고 1보다 작아야" : "0~1 사이여야"} 합니다`);
   };
-  ["UP_BAND", "DN_BAND", "TS_THRESH"].forEach((k) => in01(k, true));
-  ["TS_THRESH_SELL", "TP_SELL_SMALL", "TP_SELL_BIG", "RB_RATE_T", "RB_RATE_S", "SPLIT_BUY_RATE_T", "SPLIT_BUY_RATE_S"]
+  ["UP_BAND", "DN_BAND"].forEach((k) => {           // 밴드 0 = 이동평균선 그대로 (백테스트와 같이 허용)
+    if (Number.isFinite(P[k]) && !(P[k] >= 0 && P[k] < 1)) errs.push(`${k}=${P[k]} 은(는) 0 이상 1 미만이어야 합니다`);
+  });
+  in01("TS_THRESH", true);
+  ["TS_THRESH_SELL", "TP_SELL_BIG", "RB_RATE_T", "RB_RATE_S", "SPLIT_BUY_RATE_T", "SPLIT_BUY_RATE_S"]
     .forEach((k) => in01(k, false));
   if (!(Number.isInteger(P.STAGE_NUM) && P.STAGE_NUM >= 1)) errs.push(`STAGE_NUM=${P.STAGE_NUM} 은(는) 1 이상의 정수여야 합니다`);
   if (!(Number.isInteger(P.BAND_ROLLING_N) && P.BAND_ROLLING_N >= 2 && P.BAND_ROLLING_N <= 600))
@@ -88,11 +91,24 @@ function checkParams(P) {
   if (Math.abs(P.RB_RATE_T + P.RB_RATE_S - 1) > 1e-6)
     errs.push(`RB_RATE_T + RB_RATE_S = ${P.RB_RATE_T + P.RB_RATE_S} (합이 1이어야 합니다)`);
   const th = P.TP_THRESH_HOLDS;
+  let thOk = false;
   if (!Array.isArray(th)) errs.push("TP_THRESH_HOLDS 는 [0.1, 0.25, 0.5] 같은 배열이어야 합니다");
-  else {
-    if (th.some((v) => !(Number.isFinite(v) && v > 0))) errs.push(`TP_THRESH_HOLDS 값은 0보다 큰 숫자여야 합니다: [${th}]`);
-    else if (new Set(th).size !== th.length) errs.push(`TP_THRESH_HOLDS 에 같은 값이 두 번 있습니다: [${th}]`);
-    else P.TP_THRESH_HOLDS = [...th].sort((a, b) => a - b);
+  else if (th.some((v) => !(Number.isFinite(v) && v > 0))) errs.push(`TP_THRESH_HOLDS 값은 0보다 큰 숫자여야 합니다: [${th}]`);
+  else if (new Set(th).size !== th.length) errs.push(`TP_THRESH_HOLDS 에 같은 값이 두 번 있습니다: [${th}]`);
+  else thOk = true;
+
+  // 소익절 매도 비율: 숫자(모든 단계 같음) 또는 배열(작은 수익률 단계부터, 부족하면 마지막 값 반복)
+  const ss = P.TP_SELL_SMALL;
+  const sells = Array.isArray(ss) ? ss : [ss];
+  const ascending = thOk && th.every((v, i) => i === 0 || th[i - 1] < v);
+  if (Array.isArray(ss) && !ss.length) errs.push("TP_SELL_SMALL 배열이 비어 있습니다 (값을 1개 이상 넣어 주세요)");
+  else if (sells.some((v) => !(Number.isFinite(v) && v >= 0 && v <= 1)))
+    errs.push(`TP_SELL_SMALL 값은 0~1 사이 숫자여야 합니다: ${Array.isArray(ss) ? `[${ss}]` : ss}`);
+  else if (Array.isArray(ss) && ss.length > 1 && thOk && !ascending)
+    errs.push(`TP_SELL_SMALL 을 단계별로 지정할 때는 TP_THRESH_HOLDS 를 작은 값부터 적어 주세요: [${th}]`);
+  else if (thOk) {
+    P.TP_THRESH_HOLDS = [...th].sort((a, b) => a - b);
+    P.TP_SELLS = P.TP_THRESH_HOLDS.map((_, k) => sells[Math.min(k, sells.length - 1)]);   // 단계별 매도 비율
   }
   return errs.length ? errs.join(" / ") : null;
 }
@@ -330,11 +346,12 @@ function simulate(dates, spx, tqqq, spy, P) {
 
         P.TP_THRESH_HOLDS.forEach((th, k) => {
           if (cycleRet >= th && !tpFlags[k]) {
-            const qty = sharesT * P.TP_SELL_SMALL;
+            const sell = P.TP_SELLS[k];                 // 이 단계의 매도 비율
+            const qty = sharesT * sell;
             if (qty > 0) {
               moveTtoS(qty);
               tpFlags[k] = true;
-              acts.push({ type: "TP", frac: P.TP_SELL_SMALL, text: `소익절 (+${pctNum(th)}% 달성) · TQQQ ${pctNum(P.TP_SELL_SMALL)}% → SPYM` });
+              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성) · TQQQ ${pctNum(sell)}% → SPYM` });
             }
           }
         });
@@ -509,7 +526,7 @@ function makePayload(dates, spx, tqqq, spy, meta, P = PARAMS) {
       toTriggerPct: r2((s.localPeak * (1 - P.TS_THRESH) / cSpx - 1) * 100)
     } : null,
     tp: active ? {
-      small: P.TP_THRESH_HOLDS.map((th, k) => ({ th, done: s.tpFlags[k] })),
+      small: P.TP_THRESH_HOLDS.map((th, k) => ({ th, sell: P.TP_SELLS[k], done: s.tpFlags[k] })),
       nextSmall: nextSmall.length ? nextSmall[0] : null,
       bigStage: s.bigTpStage,
       nextBig: Math.pow(2, s.bigTpStage)   // 다음 대익절 기준 (사이클 수익률 배수: 1.0 = +100%)
@@ -538,8 +555,10 @@ function makePayload(dates, spx, tqqq, spy, meta, P = PARAMS) {
       smaN: P.BAND_ROLLING_N, smaLabel: smaLabel(P), name: strategyName(P),
       upBand: P.UP_BAND, dnBand: P.DN_BAND, ts: P.TS_THRESH, tsSell: P.TS_THRESH_SELL,
       stages: P.STAGE_NUM, splitT: P.SPLIT_BUY_RATE_T, splitS: P.SPLIT_BUY_RATE_S,
-      rbT: P.RB_RATE_T, rbS: P.RB_RATE_S, tpSmall: P.TP_SELL_SMALL, tpBig: P.TP_SELL_BIG,
+      rbT: P.RB_RATE_T, rbS: P.RB_RATE_S, tpBig: P.TP_SELL_BIG,
+      tpSmall: Array.isArray(P.TP_SELL_SMALL) ? null : P.TP_SELL_SMALL,   // 모든 단계 같은 비율일 때만 (단계별이면 null)
       tpThresholds: P.TP_THRESH_HOLDS,
+      tpSells: P.TP_SELLS,                 // 단계별 소익절 매도 비율 (tpThresholds 와 같은 순서)
       spymProxy: meta.spymProxy || "SPY"   // 시뮬레이션의 SPYM 대용 가격 (SPY, 못 받으면 SPX)
     },
     price: { ...price, spym: meta.spym === undefined ? null : meta.spym },
