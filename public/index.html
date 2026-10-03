@@ -134,7 +134,6 @@
     .ev:first-of-type { border-top: 0; }
     .ev-date { color: var(--p2); font-size: 12px; width: 60px; flex-shrink: 0; padding-top: 1px; }
     .ev-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .ev-body span { white-space: pre-line; }
     .t-BUY { color: var(--cp); } .t-ENTRY { color: var(--upperBand); } .t-TS, .t-EXIT { color: var(--alert); }
     .t-TP { color: var(--lowerBand); } .t-REBAL { color: var(--spym); } .t-CYCLE, .t-TAX { color: var(--p2); }
     .empty { color: var(--p2); font-size: 13px; padding: 6px 0; }
@@ -212,7 +211,7 @@
       <details class="cfg">
         <summary><h2 class="title">전략 설정</h2><span class="version" id="cfg-ver">지금 적용 중인 값</span></summary>
         <div class="rows" id="cfg" style="margin-top:8px"></div>
-        <p class="note">worker.js 의 PARAMS 값입니다.<br>바꾼 뒤 배포하면 웹페이지·텔레그램 알림·자동매매가 함께 바뀝니다.</p>
+        <p class="note">worker.js 의 PARAMS 값입니다. 바꾼 뒤 배포하면 웹페이지·텔레그램 알림·자동매매가 함께 바뀝니다.</p>
       </details>
     </section>
 
@@ -346,7 +345,9 @@
       let html = "";
 
       if (!acts.length) {
-        html = `<div class="msg">${d.state.active ? "오늘은 주문할 내용이 없습니다. 보유를 유지하세요." : "오늘은 주문할 내용이 없습니다. SGOV로 대기하세요."}</div>`;
+        html = `<div class="msg">${d.state.active ? "오늘은 주문할 내용이 없습니다. 보유를 유지하세요."
+          : d.state.entryUnknown ? "오늘은 주문할 내용이 없습니다. 진입 시점 미확인 구간이라 지금 보유 상태를 그대로 두세요."
+          : "오늘은 주문할 내용이 없습니다. SGOV로 대기하세요."}</div>`;
       } else if (!pS) {
         html = `<div class="msg">SPYM 시세를 불러오지 못해 주식수를 계산할 수 없습니다. 새로고침 해보세요.</div>`;
       } else if (!hasHold) {
@@ -486,7 +487,12 @@
       const st = d.state, p = d.price, out = [];
       const zoneTxt = { ABOVE: "밴드 위", IN_BAND: "밴드 안", BELOW: "밴드 아래" }[p.zone];
 
-      if (!st.active) {
+      if (st.entryUnknown) {
+        out.push(row("포지션", "상승 구간 · 진입 시점 미확인", `SPX는 현재 ${zoneTxt}`));
+        out.push(row("이유", "계산 시작일에 이미 상승 구간", "최근 5년 데이터로 계산하는데, 그 첫날 이미 상단 밴드 위라 사이클이 언제 시작됐는지 알 수 없습니다"));
+        out.push(row("매매 신호", "청산만 냄", "분할매수·TS·익절·리밸런싱 신호는 내지 않고, 하단 밴드 이탈 때만 전량 청산 신호를 냅니다"));
+        out.push(row("청산 조건", `SPX ${num(p.dnBand)} 아래`, `현재가 대비 ${pct(p.toDnPct)}`));
+      } else if (!st.active) {
         out.push(row("포지션", "하락장 · 전량 SGOV", `SPX는 현재 ${zoneTxt}`));
         out.push(row("재진입 조건", `SPX ${num(p.upBand)} 이상`, `현재가 대비 ${pct(p.toUpPct)}`));
       } else {
@@ -505,7 +511,7 @@
           }
         }
         out.push(row("분할매수", `<span class="dots">${dots}</span>${st.buy.filled}/${st.buy.total}`, small));
-        if (st.cycleRet !== null) out.push(row("사이클 수익률", pct0(st.cycleRet)));
+        if (st.cycleRet !== null) out.push(row("사이클 수익률", pct0(st.cycleRet), "세전 · 익절 기준"));
         if (st.ts) out.push(row("TS 발동선", `SPX ${num(st.ts.trigger)}`, `고점 ${num(st.ts.peak)} 대비 ${pct(st.ts.fromPeakPct)} · 발동까지 ${pct(st.ts.toTriggerPct)}`));
         const sells = st.tp.small.map((x, i) => x.sell !== undefined ? x.sell : tpSells(d, st.tp.small.length)[i]);
         const nextIdx = st.tp.small.findIndex((x) => !x.done);
@@ -513,7 +519,7 @@
           : `소익절 다음 +${pctS(st.tp.nextSmall)}` + (sells[nextIdx] !== undefined && sells[nextIdx] !== null ? ` · TQQQ ${pctS(sells[nextIdx])} 매도` : ""),
           `대익절 다음 +${pctS(st.tp.nextBig)}`));
         out.push(row("소익절 단계", tpSteps(st.tp, sells), sellText(sells)));
-        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때<br>TQQQ ${pctS(d.params.rbT)} / SPYM ${pctS(d.params.rbS)}로 1회`));
+        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때 TQQQ ${pctS(d.params.rbT)} / SPYM ${pctS(d.params.rbS)}로 1회`));
       }
       $("state").innerHTML = out.join("");
     }
