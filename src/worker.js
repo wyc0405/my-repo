@@ -354,7 +354,7 @@ function simulate(dates, spx, tqqq, spy, P) {
             if (qty > 0) {
               moveTtoS(qty);
               tpFlags[k] = true;
-              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성) · TQQQ ${pctNum(sell)}% → SPYM` });
+              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성)\nTQQQ ${pctNum(sell)}% → SPYM` });
             }
           }
         });
@@ -367,7 +367,7 @@ function simulate(dates, spx, tqqq, spy, P) {
               const qty = sharesT * P.TP_SELL_BIG;
               if (qty > 0) {
                 moveTtoS(qty);
-                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성) · TQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
+                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성)\nTQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
               }
             }
             bigTpStage = highest;
