@@ -24,6 +24,10 @@
 //   · 시뮬레이션 첫날 SPX가 이미 상단 밴드 위면 '진입 시점 미확인'
 //     → 가짜 진입(분할매수)을 하지 않고, 하단 밴드 이탈(전량 청산) 전까지 매매 신호 없음
 //       하단 밴드 이탈 때는 청산(EXIT) 신호를 냄 (실제 계좌에 보유분이 있으면 팔아야 하므로)
+// v1.9 변경
+//   · 현금 표기를 SGOV → 달러(외화RP)로 (현금은 SGOV 대신 계좌 달러 · 외화RP로 관리)
+//     신호 계산은 그대로 (현금 이자는 CASH_APR 가정)
+//   · 화면에 보이는 버전 표기를 실제 버전과 맞춤 (이전에는 v1.8 내용인데 v1.5로 표시됐음)
 //
 // ※ 전략 파라미터는 아래 PARAMS 블록에서만 바꾸면 됩니다.
 //   웹페이지·텔레그램 알림·자동매매 프로그램(auto_trader)이 모두 이 값을 따릅니다.
@@ -43,6 +47,7 @@ const ALERT = {
   PAGE_URL: "https://my-repo.wyc1566.workers.dev"   // 알림에 넣을 내 웹페이지 주소
 };
 const TRADE_TYPES = ["BUY", "TS", "TP", "REBAL", "EXIT"];
+const CASH = "달러";       // 현금 표기 (계좌 달러 · 외화RP — SGOV 는 쓰지 않음)
 
 // 이동평균 기간에 따라 바뀌는 이름 (예: 200 → "200일선", "200슨피단")
 const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
@@ -69,7 +74,7 @@ const PARAMS = {
   STAGE_NUM: 13,                     // 분할매수 횟수
   TP_THRESH_HOLDS: [0.55, 0.75, 0.975], // 소익절 기준 (사이클 수익률) — +55% / +75% / +97.5%
   BAND_ROLLING_N: 227,               // 이동평균 기간 (일)
-  CASH_APR: 0.035                    // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
+  CASH_APR: 0.035                    // 현금(달러·외화RP) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 // ==== PARAMS 끝 ====
 
@@ -284,14 +289,14 @@ function simulate(dates, spx, tqqq, spy, P) {
       if (entryUnknown) {
         // 진입 시점 미확인 구간이 끝남 → 실제 계좌에 보유분이 있으면 팔아야 하므로 청산 신호는 냄
         entryUnknown = false;
-        acts.push({ type: "EXIT", text: "하단 밴드 이탈 (진입 시점 미확인 구간 종료 · 보유 중이면 TQQQ·SPYM 전량 청산 → SGOV)" });
+        acts.push({ type: "EXIT", text: `하단 밴드 이탈 (진입 시점 미확인 구간 종료 · 보유 중이면 TQQQ·SPYM 전량 청산 → ${CASH})` });
       } else if (sharesT > 0 || sharesS > 0) {
         const valT = sharesT * cT * (1 - FEE);
         const valS = sharesS * cS * (1 - FEE);
         cash += valT + valS;
         sharesT = 0; sharesS = 0;
         totalTrades++;
-        acts.push({ type: "EXIT", text: "하단 밴드 이탈 (TQQQ·SPYM 전량 청산 → SGOV)" });
+        acts.push({ type: "EXIT", text: `하단 밴드 이탈 (TQQQ·SPYM 전량 청산 → ${CASH})` });
       }
       if (cycleStartEq > 0) {
         const ret = cash / cycleStartEq - 1;
@@ -414,15 +419,15 @@ function buildSignal(sim, P, price) {
   if (has("EXIT")) {
     tone = "sell";
     headline = "하단 밴드 이탈 · 전량 청산";
-    lines.push(["TQQQ·SPYM", "전량 매도"], ["SGOV", "전환"]);
+    lines.push(["TQQQ·SPYM", "전량 매도"], [CASH, "보유 (외화RP는 직접)"]);
   } else if (sim.position === "BELOW") {
     tone = "wait";
-    headline = "하락장 · SGOV 대기";
-    lines.push(["SGOV", "보유 유지"]);
+    headline = `하락장 · ${CASH} 대기`;
+    lines.push([CASH, "보유 유지"]);
   } else if (sim.entryUnknown) {
     tone = "wait";
     headline = "상승 구간 · 진입 시점 미확인";
-    lines.push(["TQQQ·SPYM·SGOV", "지금 상태 유지 (매매 신호 없음)"]);
+    lines.push([`TQQQ·SPYM·${CASH}`, "지금 상태 유지 (매매 신호 없음)"]);
   } else {
     const buy = acts.find((a) => a.type === "BUY");
     if (has("TS")) {
@@ -433,7 +438,7 @@ function buildSignal(sim, P, price) {
     if (buy) {
       tone = tone === "alert" ? tone : "buy";
       if (!headline) headline = `${buy.stage}/${P.STAGE_NUM}차 분할매수`;
-      lines.push(["TQQQ·SPYM", `${buy.stage}/${P.STAGE_NUM}차 매수`], ["SGOV", "매도"]);
+      lines.push(["TQQQ·SPYM", `${buy.stage}/${P.STAGE_NUM}차 매수`], [CASH, "사용"]);
     }
     if (has("REBAL")) {
       if (!headline) headline = "리밸런싱";
