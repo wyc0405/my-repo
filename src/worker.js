@@ -18,6 +18,13 @@
 // "오늘 시점의 포지션 · 분할매수 단계 · 익절/TS 기준 · 오늘의 신호"를 JSON으로 돌려줍니다.
 //   신호 = SPX, 매매 = TQQQ · SPY (SPYM 대용, 백테스트와 같음 — SPY를 못 받은 날은 SPX로 대신 계산)
 //
+// v1.8 변경
+//   · 사이클 수익률(익절 기준)은 세전: 시뮬레이션 계좌는 세금을 내지 않음
+//     → 과거 데이터 기간(최근 5년)이 어디서 시작하든 익절 시점이 같음 (BackTest.py 와 같은 기준 · TAX_ON 켬/끔 모두)
+//   · 시뮬레이션 첫날 SPX가 이미 상단 밴드 위면 '진입 시점 미확인'
+//     → 가짜 진입(분할매수)을 하지 않고, 하단 밴드 이탈(전량 청산) 전까지 매매 신호 없음
+//       하단 밴드 이탈 때는 청산(EXIT) 신호를 냄 (실제 계좌에 보유분이 있으면 팔아야 하므로)
+//
 // ※ 전략 파라미터는 아래 PARAMS 블록에서만 바꾸면 됩니다.
 //   웹페이지·텔레그램 알림·자동매매 프로그램(auto_trader)이 모두 이 값을 따릅니다.
 //   백테스트에서 고른 설정은 BackTest.py 의 worker_params_js(설정) 로 PARAMS 블록을 만들어
@@ -25,7 +32,7 @@
 //   값이 잘못되면(합이 1이 아닌 비중 등) 신호를 내지 않고 웹페이지에 오류를 보여 줍니다.
 // ============================================================
 
-const VERSION = "v1.4";
+const VERSION = "v1.5";
 
 // ------------------------------------------------------------
 // 텔레그램 알림 설정
@@ -42,25 +49,26 @@ const smaLabel = (P = PARAMS) => `${P.BAND_ROLLING_N}일선`;
 //const strategyName = (P = PARAMS) => `${P.BAND_ROLLING_N}슨피단`;
 const strategyName = (P = PARAMS) => `SPX_TQQQ`;
 
+
 // ==== PARAMS 시작 (이 블록을 통째로 바꿔 넣어도 됨) ====
 const PARAMS = {
-  UP_BAND: 0.04,                     // 상단 밴드 (이동평균선 +4%)
-  DN_BAND: 0.0475,                   // 하단 밴드 (이동평균선 -4.75%)
+  UP_BAND: 0.0425,                   // 상단 밴드 (이동평균선 +4.25%)
+  DN_BAND: 0.0325,                   // 하단 밴드 (이동평균선 -3.25%)
   TS_THRESH: 0.11,                   // SPX가 사이클 고점 대비 -11% → TS 발동 (발동 후 고점 리셋 = 연쇄)
   TS_THRESH_SELL: 1,                 // TS 발동 시 TQQQ 보유량의 100% → SPYM
-  RB_RATE_T: 0.55,                   // 리밸런싱 TQQQ 비중
-  RB_RATE_S: 0.45,                   // 리밸런싱 SPYM 비중
+  RB_RATE_T: 0.62,                   // 리밸런싱 TQQQ 비중
+  RB_RATE_S: 0.38,                   // 리밸런싱 SPYM 비중
   FEE: 0.0007,                       // 매매 수수료 0.07%
-  TAX_RATE: 0.22,                    // 양도소득세 22%
-  DEDUCTION: 2500,                   // 연간 기본공제 ($)
+  TAX_RATE: 0.22,                    // 양도소득세 22% (참고용 — 신호 계산은 세전이라 쓰지 않음)
+  DEDUCTION: 2500,                   // 연간 기본공제 ($) (참고용 — 신호 계산에는 쓰지 않음)
   START_CAPITAL: 10000,              // 시뮬레이션 시작 자산 ($)
-  TP_SELL_SMALL: [0.03, 0.88, 0.19], // 소익절 단계별 TQQQ 매도 비율 — +35%: 3% / +40%: 88% / +90%: 19%
-  TP_SELL_BIG: 0.59,                 // 대익절: TQQQ 59% → SPYM
-  SPLIT_BUY_RATE_T: 0.875,           // 분할매수 시 TQQQ 비중
-  SPLIT_BUY_RATE_S: 0.125,           // 분할매수 시 SPYM 비중
-  STAGE_NUM: 8,                      // 분할매수 횟수
-  TP_THRESH_HOLDS: [0.35, 0.4, 0.9], // 소익절 기준 (사이클 수익률) — +35% / +40% / +90%
-  BAND_ROLLING_N: 196,               // 이동평균 기간 (일)
+  TP_SELL_SMALL: [0.38, 0.63, 0.99], // 소익절 단계별 TQQQ 매도 비율 — +55%: 38% / +75%: 63% / +97.5%: 99%
+  TP_SELL_BIG: 0.17,                 // 대익절: TQQQ 17% → SPYM
+  SPLIT_BUY_RATE_T: 12/13,    // 분할매수 시 TQQQ 비중
+  SPLIT_BUY_RATE_S: 1/13,   // 분할매수 시 SPYM 비중
+  STAGE_NUM: 13,                     // 분할매수 횟수
+  TP_THRESH_HOLDS: [0.55, 0.75, 0.975], // 소익절 기준 (사이클 수익률) — +55% / +75% / +97.5%
+  BAND_ROLLING_N: 227,               // 이동평균 기간 (일)
   CASH_APR: 0.035                    // SGOV(현금) 연 이자율 가정 (파이썬은 DFF 실데이터 사용)
 };
 // ==== PARAMS 끝 ====
@@ -206,28 +214,29 @@ function getSMA(data, p) {
 }
 
 // spx: 신호용 SPX, tqqq: TQQQ, spy: SPYM 대용 가격 (SPY, 없으면 SPX)
+//   세금은 계산하지 않음 (사이클 수익률 = 세전 → 데이터 기간이 달라도 익절 시점이 같음)
+//   첫날 이미 상단 밴드 위면 entryUnknown(진입 시점 미확인): 하단 밴드 이탈까지 매매하지 않음
 function simulate(dates, spx, tqqq, spy, P) {
   const N = dates.length;
   const sma = getSMA(spx, P.BAND_ROLLING_N);
   const start = sma.findIndex((v) => v !== null);
   if (start < 0) throw new Error(`데이터가 부족합니다 (${smaLabel(P)} 계산 불가)`);
 
-  const years = dates.map((d) => +d.slice(0, 4));
-  const months = dates.map((d) => +d.slice(5, 7));
   const dayMs = dates.map((d) => Date.parse(d));
   const FEE = P.FEE;
 
   let cash = P.START_CAPITAL;
-  let sharesT = 0, sharesS = 0, costT = 0, costS = 0;
+  let sharesT = 0, sharesS = 0;
   let position = "BELOW";
+  // 첫날 이미 상단 밴드 위 → 이 상승 구간이 언제 시작됐는지(진입일) 알 수 없음 → 가짜 진입 대신 대기
+  let entryUnknown = spx[start] >= sma[start] * (1 + P.UP_BAND);
+  if (entryUnknown) position = "ABOVE";
   let buyStage = 0;
   let localPeak = 0;
   let tpFlags = P.TP_THRESH_HOLDS.map(() => false);
   let bigTpStage = 0;
   let cycleStartEq = 0;
   let rebalanced = false;
-  let realizedYear = 0;
-  let taxesOwed = [];          // [year, amount]
   let totalTrades = 0, totalTs = 0;
   let peakEq = P.START_CAPITAL;
 
@@ -237,6 +246,8 @@ function simulate(dates, spx, tqqq, spy, P) {
   let todayActs = [];
   let todayPos = "BELOW";
   let lastEq = P.START_CAPITAL;
+  if (entryUnknown) events.push({ date: dates[start], acts: [{ type: "CYCLE",
+    text: `계산 시작일에 이미 상승 구간 · 진입 시점 미확인 (하단 밴드 이탈 전까지 매매 신호 없음)` }] });
 
   for (let i = start; i < N; i++) {
     const gap = i === 0 ? 1 : (dayMs[i] - dayMs[i - 1]) / 86400000;
@@ -254,12 +265,9 @@ function simulate(dates, spx, tqqq, spy, P) {
 
     // TQQQ 일부를 팔아 SPYM으로 옮기는 공통 동작 (TS / 리밸런싱 / 익절)
     const moveTtoS = (qty) => {
-      const avg = costT / sharesT;
       const proceeds = qty * cT * (1 - FEE);
-      const cgs = avg * qty;
-      realizedYear += proceeds - cgs;
-      sharesT -= qty; costT -= cgs;
-      sharesS += proceeds * (1 - FEE) / cS; costS += proceeds;
+      sharesT -= qty;
+      sharesS += proceeds * (1 - FEE) / cS;
     };
 
     if (position === "BELOW" && todayPos === "ABOVE") {
@@ -273,15 +281,15 @@ function simulate(dates, spx, tqqq, spy, P) {
       acts.push({ type: "ENTRY", text: "상단 밴드 돌파 (진입 시작)" });
     } else if (position === "ABOVE" && todayPos === "BELOW") {
       // 하향 이탈 (전량 청산)
-      if (sharesT > 0 || sharesS > 0) {
-        const avgT = sharesT > 0 ? costT / sharesT : 0;
-        const avgS = sharesS > 0 ? costS / sharesS : 0;
+      if (entryUnknown) {
+        // 진입 시점 미확인 구간이 끝남 → 실제 계좌에 보유분이 있으면 팔아야 하므로 청산 신호는 냄
+        entryUnknown = false;
+        acts.push({ type: "EXIT", text: "하단 밴드 이탈 (진입 시점 미확인 구간 종료 · 보유 중이면 TQQQ·SPYM 전량 청산 → SGOV)" });
+      } else if (sharesT > 0 || sharesS > 0) {
         const valT = sharesT * cT * (1 - FEE);
         const valS = sharesS * cS * (1 - FEE);
-        realizedYear += valT - avgT * sharesT;
-        if (sharesS > 0) realizedYear += valS - avgS * sharesS;
         cash += valT + valS;
-        sharesT = 0; sharesS = 0; costT = 0; costS = 0;
+        sharesT = 0; sharesS = 0;
         totalTrades++;
         acts.push({ type: "EXIT", text: "하단 밴드 이탈 (TQQQ·SPYM 전량 청산 → SGOV)" });
       }
@@ -294,7 +302,7 @@ function simulate(dates, spx, tqqq, spy, P) {
       cycleStartEq = 0;
     }
 
-    if (todayPos === "ABOVE") {
+    if (todayPos === "ABOVE" && !entryUnknown) {
       if (cSig > localPeak) localPeak = cSig;
 
       if (buyStage > 0 && buyStage <= P.STAGE_NUM) {
@@ -305,8 +313,6 @@ function simulate(dates, spx, tqqq, spy, P) {
           const amtS = buyAmt * P.SPLIT_BUY_RATE_S * (1 - FEE);
           sharesT += amtT / cT;
           sharesS += amtS / cS;
-          costT += amtT;
-          costS += amtS;
           cash -= buyAmt;
           acts.push({ type: "BUY", stage: buyStage, text: `${buyStage}/${P.STAGE_NUM}차 분할매수` });
         }
@@ -318,7 +324,7 @@ function simulate(dates, spx, tqqq, spy, P) {
         if (qty > 0) {
           moveTtoS(qty);
           totalTs++;
-          acts.push({ type: "TS", frac: P.TS_THRESH_SELL, text: `TS 발동 (SPX 고점 대비 -${pctNum(P.TS_THRESH)}%)\nTQQQ ${pctNum(P.TS_THRESH_SELL)}% → SPYM` });
+          acts.push({ type: "TS", frac: P.TS_THRESH_SELL, text: `TS 발동 (SPX 고점 대비 -${pctNum(P.TS_THRESH)}%) · TQQQ ${pctNum(P.TS_THRESH_SELL)}% → SPYM` });
         }
       } else if (i > start && cSig < bUp && spx[i - 1] >= sma[i - 1] * (1 + P.UP_BAND) && !rebalanced) {
         // 상승장에서 밴드 안으로 처음 재진입 → 1회 리밸런싱 (비중 기준: 현금 제외, TQQQ + SPYM)
@@ -328,18 +334,15 @@ function simulate(dates, spx, tqqq, spy, P) {
           moveTtoS(qty);
         } else if (sharesS > 0) {
           const sty = (sharesS * cS - totalEqNow * P.RB_RATE_S) / cS;
-          const avg = costS / sharesS;
           const proceeds = sty * cS * (1 - FEE);
-          const cgs = avg * sty;
-          realizedYear += proceeds - cgs;
-          sharesS -= sty; costS -= cgs;
-          sharesT += proceeds * (1 - FEE) / cT; costT += proceeds;
+          sharesS -= sty;
+          sharesT += proceeds * (1 - FEE) / cT;
         }
         rebalanced = true;
         acts.push({ type: "REBAL", text: `리밸런싱 (TQQQ ${pctNum(P.RB_RATE_T)}% / SPYM ${pctNum(P.RB_RATE_S)}%)` });
       }
 
-      // 소익절 / 대익절
+      // 소익절 / 대익절 (사이클 수익률 = 세전 — 시뮬레이션 계좌는 세금을 내지 않음)
       const totalEqNow = cash + sharesT * cT + sharesS * cS;
       if (cycleStartEq > 0 && sharesT > 0) {
         const cycleRet = totalEqNow / cycleStartEq - 1;
@@ -351,7 +354,7 @@ function simulate(dates, spx, tqqq, spy, P) {
             if (qty > 0) {
               moveTtoS(qty);
               tpFlags[k] = true;
-              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성)\nTQQQ ${pctNum(sell)}% → SPYM` });
+              acts.push({ type: "TP", frac: sell, text: `소익절 (+${pctNum(th)}% 달성) · TQQQ ${pctNum(sell)}% → SPYM` });
             }
           }
         });
@@ -364,7 +367,7 @@ function simulate(dates, spx, tqqq, spy, P) {
               const qty = sharesT * P.TP_SELL_BIG;
               if (qty > 0) {
                 moveTtoS(qty);
-                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성)\nTQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
+                acts.push({ type: "TP", frac: P.TP_SELL_BIG, text: `대익절 (+${Math.floor(cycleRet * 100)}% 달성) · TQQQ ${pctNum(P.TP_SELL_BIG)}% → SPYM` });
               }
             }
             bigTpStage = highest;
@@ -374,53 +377,7 @@ function simulate(dates, spx, tqqq, spy, P) {
     }
 
     position = todayPos;
-
-    // 세금 납부: 매년 5월 마지막 거래일 (마지막 봉은 월말 확정 전이라 제외)
-    if (i > start && months[i] === 5 && i + 1 < N && months[i + 1] === 6) {
-      const toPay = taxesOwed.filter(([y]) => years[i] > y).reduce((s, [, a]) => s + a, 0);
-      if (toPay > 0) {
-        acts.push({ type: "TAX", text: `세금 납부 ($${toPay.toFixed(0)})` });
-        if (cash >= toPay) {
-          cash -= toPay;
-        } else {
-          let rem = toPay - cash;
-          cash = 0;
-          const valS = sharesS > 0 ? sharesS * cS * (1 - FEE) : 0;
-          if (sharesS > 0 && valS >= rem) {
-            const sellQty = (rem / (1 - FEE)) / cS;
-            const avg = costS / sharesS;
-            realizedYear += rem - avg * sellQty;
-            sharesS -= sellQty; costS -= avg * sellQty; rem = 0;
-          } else {
-            if (sharesS > 0) {
-              rem -= valS;
-              realizedYear += valS - costS;
-              sharesS = 0; costS = 0;
-            }
-            const valT = sharesT > 0 ? sharesT * cT * (1 - FEE) : 0;
-            if (sharesT > 0 && valT >= rem) {
-              const sellQty = (rem / (1 - FEE)) / cT;
-              const avg = costT / sharesT;
-              realizedYear += rem - avg * sellQty;
-              sharesT -= sellQty; costT -= avg * sellQty; rem = 0;
-            } else {
-              cash = 0; sharesT = 0; sharesS = 0;
-            }
-          }
-        }
-        taxesOwed = taxesOwed.filter(([y]) => y >= years[i]);
-      }
-    }
-
-    // 연말 정산: 다음 봉이 있고 해가 바뀔 때만 (마지막 봉 제외)
-    if (i + 1 < N && years[i] !== years[i + 1]) {
-      if (realizedYear > P.DEDUCTION) {
-        const tax = (realizedYear - P.DEDUCTION) * P.TAX_RATE;
-        taxesOwed.push([years[i], tax]);
-        acts.push({ type: "TAX", text: `연말 정산: 세금 확정 ($${tax.toFixed(0)})` });
-      }
-      realizedYear = 0;
-    }
+    // (세금은 계산하지 않음 — 사이클 수익률을 세전으로 두어 데이터 기간과 상관없이 익절 시점이 같도록)
 
     const totalEq = cash + sharesT * cT + sharesS * cS;
     if (totalEq > peakEq) peakEq = totalEq;
@@ -432,7 +389,7 @@ function simulate(dates, spx, tqqq, spy, P) {
 
   const last = N - 1;
   return {
-    start, eq, events, cycles, todayActs, position, todayPos,
+    start, eq, events, cycles, todayActs, position, todayPos, entryUnknown,
     state: {
       cash, sharesT, sharesS, buyStage, localPeak, tpFlags, bigTpStage,
       cycleStartEq, rebalanced, totalEq: lastEq, totalTrades, totalTs,
@@ -462,6 +419,10 @@ function buildSignal(sim, P, price) {
     tone = "wait";
     headline = "하락장 · SGOV 대기";
     lines.push(["SGOV", "보유 유지"]);
+  } else if (sim.entryUnknown) {
+    tone = "wait";
+    headline = "상승 구간 · 진입 시점 미확인";
+    lines.push(["TQQQ·SPYM·SGOV", "지금 상태 유지 (매매 신호 없음)"]);
   } else {
     const buy = acts.find((a) => a.type === "BUY");
     if (has("TS")) {
@@ -509,7 +470,7 @@ function makePayload(dates, spx, tqqq, spy, meta, P = PARAMS) {
     zone: cSpx >= bUp ? "ABOVE" : cSpx < bDown ? "BELOW" : "IN_BAND"
   };
 
-  const active = sim.position === "ABOVE";
+  const active = sim.position === "ABOVE" && !sim.entryUnknown;   // 진입 시점 미확인이면 사이클 정보 없음
   const total = s.totalEq;
   const cycleRet = active && s.cycleStartEq > 0 ? total / s.cycleStartEq - 1 : null;
 
@@ -517,6 +478,8 @@ function makePayload(dates, spx, tqqq, spy, meta, P = PARAMS) {
   const state = {
     position: sim.position,
     active,
+    entryUnknown: !!sim.entryUnknown,    // 상승 구간인데 계산 시작일 이전에 진입해서 진입 시점을 모름 (매매 신호 없음, 청산만)
+    cycleRetBasis: "pretax",             // 사이클 수익률 = 세전
     buy: { filled: active ? Math.min(Math.max(s.buyStage - 1, 0), P.STAGE_NUM) : 0, total: P.STAGE_NUM },
     cycleRet: cycleRet === null ? null : r4(cycleRet),
     ts: active ? {
@@ -770,6 +733,10 @@ const pct = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 // 사전 알림: 오늘 밤 미국장에서 날 수 있는 신호 (어제 종가 기준, SPX가 X% 안쪽으로 움직이면)
 function preAlertReasons(p, X) {
   const s = p.state, pr = p.price, out = [];
+  if (s.entryUnknown) {                       // 진입 시점 미확인: 청산 신호만 남
+    if (pr.toDnPct >= -X) out.push(`전량 청산(EXIT): SPX가 ${pct(pr.toDnPct)} 이상 내리면 하단 밴드 이탈 (진입 시점 미확인 구간 · 보유 중이면 청산)`);
+    return out;
+  }
   if (s.position !== "ABOVE") {
     if (pr.toUpPct <= X) out.push(`진입(1차 분할매수): SPX가 ${pct(pr.toUpPct)} 이상 오르면 상단 밴드 돌파`);
     return out;
