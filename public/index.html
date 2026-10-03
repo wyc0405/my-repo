@@ -522,7 +522,7 @@
           : `소익절 다음 +${pctS(st.tp.nextSmall)}` + (sells[nextIdx] !== undefined && sells[nextIdx] !== null ? ` · TQQQ ${pctS(sells[nextIdx])} 매도` : ""),
           `대익절 다음 +${pctS(st.tp.nextBig)}`));
         out.push(row("소익절 단계", tpSteps(st.tp, sells), sellText(sells)));
-        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때 TQQQ ${pctS(d.params.rbT)} / SPYM ${pctS(d.params.rbS)}로 1회`));
+        out.push(row("리밸런싱", st.rebalanced ? "이번 사이클 완료" : "대기 중", `상단 밴드 아래로 처음 내려올 때<br>TQQQ ${pctS(d.params.rbT)} / SPYM ${pctS(d.params.rbS)}로 1회`));
       }
       $("state").innerHTML = out.join("");
     }
