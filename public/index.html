@@ -184,12 +184,12 @@
           <label>평단가($)<input id="in-ps" inputmode="decimal" autocomplete="off" placeholder="0"></label>
         </div>
         <div class="hold-row">
-          <span class="hold-tk tk-sgov">SGOV</span>
+          <span class="hold-tk tk-sgov">달러</span>
           <label>현금($)<input id="in-c" inputmode="decimal" autocomplete="off" placeholder="0"></label>
           <label style="visibility:hidden">-<input tabindex="-1" aria-hidden="true"></label>
         </div>
       </div>
-      <div class="hold-note">보유 수량과 평단가를 입력하면 오늘 사고팔 주식수를 계산합니다.<br>이 기기에만 저장됩니다.</div>
+      <div class="hold-note">보유 수량과 평단가를 입력하면 오늘 사고팔 주식수를 계산합니다.<br>현금은 이번 사이클에 쓸 달러(외화RP에서 옮겨 둔 금액)를 넣으세요. 이 기기에만 저장됩니다.</div>
       <div class="pl" id="pl" hidden></div>
       <div class="trades" id="orders"></div>
       <p class="note" id="order-note"></p>
@@ -253,7 +253,9 @@
       return { ctx, W: w, H: h };
     }
 
-    const tkClass = (t) => t.includes("TQQQ") ? "tk-tqqq" : t.includes("SPYM") ? "tk-spym" : t.includes("SGOV") ? "tk-sgov" : "";
+    // 현금 표기는 "달러" (예전 서버가 보내는 "SGOV" 도 같은 색으로)
+    const tkClass = (t) => t.includes("TQQQ") ? "tk-tqqq" : t.includes("SPYM") ? "tk-spym"
+      : (t.includes("달러") || t.includes("SGOV")) ? "tk-sgov" : "";
     const tickers = (label) => label.split("·").map((p) => `<span class="${tkClass(p)}">${esc(p)}</span>`).join('<span class="tk-dot">·</span>');
 
     // ---------- 보유 입력 ----------
@@ -348,7 +350,7 @@
       if (!acts.length) {
         html = `<div class="msg">${d.state.active ? "오늘은 주문할 내용이 없습니다. 보유를 유지하세요."
           : d.state.entryUnknown ? "오늘은 주문할 내용이 없습니다. 진입 시점 미확인 구간이라 지금 보유 상태를 그대로 두세요."
-          : "오늘은 주문할 내용이 없습니다. SGOV로 대기하세요."}</div>`;
+          : "오늘은 주문할 내용이 없습니다. 달러(외화RP)로 대기하세요."}</div>`;
       } else if (!pS) {
         html = `<div class="msg">SPYM 시세를 불러오지 못해 주식수를 계산할 수 없습니다. 새로고침 해보세요.</div>`;
       } else if (!hasHold) {
@@ -361,7 +363,7 @@
         html = tradeRow("TQQQ", h1.t - h0.t, pT, h0.pt, h1.pt, tAvgKnown) +
                tradeRow("SPYM", h1.s - h0.s, pS, h0.ps, h1.ps, sAvgKnown);
         if (Math.abs(dc) >= 1) {
-          html += `<div class="trade"><span class="who">${tickers("SGOV")}</span><span class="what ${dc < 0 ? "sell" : "buy"}">${dc < 0 ? "매도" : "매수"} $${num(Math.abs(dc), 0)}<small>SGOV·현금 ${dc < 0 ? "사용" : "확보"}</small></span></div>`;
+          html += `<div class="trade"><span class="who">${tickers("달러")}</span><span class="what ${dc < 0 ? "sell" : "buy"}">${dc < 0 ? "사용" : "확보"} $${num(Math.abs(dc), 0)}<small>${dc < 0 ? "계좌 달러로 매수 (외화RP에서 미리 옮겨 두기)" : "매도 대금은 달러로 남김 (외화RP로는 직접)"}</small></span></div>`;
         }
         if (Math.abs(h1.realized) >= 1 && (tAvgKnown || sAvgKnown)) {
           const up = h1.realized >= 0;
@@ -494,8 +496,8 @@
         out.push(row("매매 신호", "청산만 냄", "분할매수·TS·익절·리밸런싱 신호는 내지 않고, 하단 밴드 이탈 때만 전량 청산 신호를 냅니다"));
         out.push(row("청산 조건", `SPX ${num(p.dnBand)} 아래`, `현재가 대비 ${pct(p.toDnPct)}`));
       } else if (!st.active) {
-        out.push(row("포지션", "하락장 · 전량 SGOV", `SPX는 현재 ${zoneTxt}`));
-        out.push(row("재진입 조건", `SPX ${num(p.upBand)} 이상`, `현재가 대비 ${pct(p.toUpPct)}`));
+        out.push(row("포지션", "하락장 · 전량 달러(외화RP)", `SPX는 현재 ${zoneTxt}`));
+        out.push(row("재진입 조건", `SPX ${num(p.upBand)} 이상`, `현재가 대비 ${pct(p.toUpPct)} · 이번 사이클 달러를 계좌에 미리 준비`));
       } else {
         out.push(row("포지션", "상승장 · 사이클 진행 중", `SPX는 현재 ${zoneTxt}`));
         const dots = Array.from({ length: st.buy.total }, (_, i) => `<i class="${i < st.buy.filled ? "on" : ""}"></i>`).join("");
